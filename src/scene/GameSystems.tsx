@@ -115,7 +115,7 @@ export function GameSystems() {
       dt = real * feel.stopScale
     }
     const g = useGame.getState()
-    const playing = g.phase === 'playing'
+    const playing = g.phase === 'playing' && !g.paused
 
     charge.firedPulse = Math.max(0, charge.firedPulse - dt)
     charge.dryPulse = Math.max(0, charge.dryPulse - dt)

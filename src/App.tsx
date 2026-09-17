@@ -18,7 +18,9 @@ import { Lighting } from './scene/Lighting'
 import { Player } from './scene/Player'
 import { Post } from './scene/Post'
 import { SkyDome } from './scene/Sky'
+import { Pause } from './ui/Pause'
 import { Result } from './ui/Result'
+import { Tuner } from './ui/Tuner'
 import { Title } from './ui/Title'
 import { useGame } from './store'
 import { attachInput, look, pointer, requestLock } from './input'
@@ -78,13 +80,14 @@ import type { EnemyKind } from './config'
 
 function Stage() {
   const phase = useGame((s) => s.phase)
+  const paused = useGame((s) => s.paused)
   const runId = useGame((s) => s.runId)
   return (
     <Suspense fallback={null}>
       <SkyDome />
       <Backdrop />
       <Lighting />
-      <Physics gravity={GRAVITY} timeStep="vary" paused={phase !== 'playing'}>
+      <Physics gravity={GRAVITY} timeStep="vary" paused={phase !== 'playing' || paused}>
         <Arena />
         <Player key={runId} />
         <CameraRig />
@@ -102,6 +105,7 @@ function Stage() {
 export default function App() {
   const host = useRef<HTMLDivElement>(null)
   const phase = useGame((s) => s.phase)
+  const paused = useGame((s) => s.paused)
   // Adaptive resolution. The bloom pass is fill-rate bound, so on a machine
   // that cannot keep up we render fewer pixels and upscale rather than drop
   // the effect that the whole art direction rests on. Measured under software
@@ -126,6 +130,25 @@ export default function App() {
     if (canvas && !pointer.locked) requestLock(canvas)
   }, [phase])
 
+  // Losing the mouse mid-fight used to leave the world running while the
+  // player could no longer aim. Stop it and say so.
+  useEffect(() => {
+    const onChange = () => {
+      const canvas = host.current?.querySelector('canvas')
+      const locked = document.pointerLockElement === canvas
+      const st = useGame.getState()
+      if (!locked && st.phase === 'playing') st.setPaused(true)
+    }
+    document.addEventListener('pointerlockchange', onChange)
+    return () => document.removeEventListener('pointerlockchange', onChange)
+  }, [])
+
+  const resume = () => {
+    const canvas = host.current?.querySelector('canvas')
+    useGame.getState().setPaused(false)
+    if (canvas) requestLock(canvas)
+  }
+
   return (
     <div ref={host} style={{ position: 'absolute', inset: 0 }}>
       <Canvas
@@ -145,10 +168,12 @@ export default function App() {
         />
         <Stage />
       </Canvas>
-      {phase === 'playing' && <Crosshair />}
+      {phase === 'playing' && !paused && <Crosshair />}
+      {phase === 'playing' && paused && <Pause onResume={resume} />}
       {phase !== 'title' && <Hud />}
       {phase === 'title' && <Title />}
       {(phase === 'won' || phase === 'lost') && <Result />}
+      <Tuner />
     </div>
   )
 }

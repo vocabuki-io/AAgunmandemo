@@ -16,6 +16,8 @@ export interface GameState {
   chambers: number[]
   spares: number
   reloading: boolean
+  /** Pointer lock was lost: the world is stopped until the player clicks back in. */
+  paused: boolean
   wave: number
   waveLabel: string
   enemiesLeft: number
@@ -30,6 +32,7 @@ export interface GameState {
   setPhase: (p: Phase) => void
   lose: (reason: string) => void
   win: () => void
+  setPaused: (p: boolean) => void
   grantSpares: (n: number) => void
   damagePlayer: (n: number) => void
   /**
@@ -55,6 +58,7 @@ export const useGame = create<GameState>((set, get) => ({
   chambers: freshChambers(),
   spares: BATTERY.startingSpares,
   reloading: false,
+  paused: false,
   wave: 0,
   waveLabel: WAVES[0].label,
   enemiesLeft: 0,
@@ -74,6 +78,7 @@ export const useGame = create<GameState>((set, get) => ({
     chambers: freshChambers(),
     spares: BATTERY.startingSpares,
     reloading: false,
+    paused: false,
     wave: 0,
     waveLabel: WAVES[0].label,
     enemiesLeft: 0,
@@ -89,6 +94,8 @@ export const useGame = create<GameState>((set, get) => ({
   lose: (reason) => set((s) => (s.phase === 'playing' ? { phase: 'lost' as Phase, deathReason: reason } : s)),
 
   win: () => set((s) => (s.phase === 'playing' ? { phase: 'won' as Phase } : s)),
+
+  setPaused: (p) => set({ paused: p }),
 
   grantSpares: (n) => set((s) => ({ spares: s.spares + n })),
 

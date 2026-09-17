@@ -47,6 +47,7 @@ const probe = (page) => page.evaluate(() => {
     shotsFired: s.shotsFired,
     spentUnits: +s.spentUnits.toFixed(2),
     reloading: s.reloading,
+    paused: s.paused,
     deathReason: s.deathReason,
     wave: s.wave,
     director: { phase: a.director.phase, waveIndex: a.director.waveIndex, queued: a.director.queue.length },
@@ -520,6 +521,49 @@ const SCENARIOS = [
       ['firing actually scheduled sound', s.sfxAfter > s.sfxBefore],
       ['a shot is more than one voice', s.sfxAfter - s.sfxBefore >= 3],
       ['M toggles mute', s.wasMuted === false && s.nowMuted === true],
+    ],
+  },
+  {
+    name: '23-pause-on-lost-lock',
+    minStd: 14,
+    async run(page) {
+      await startGame(page, { calm: true })
+      await page.evaluate(() => document.exitPointerLock())
+      await page.waitForTimeout(900)
+      const overlay = await page.locator('[data-testid="pause-overlay"]').count()
+      const before = await probe(page)
+      // The world must be stopped, not merely covered by a panel.
+      await page.waitForTimeout(1800)
+      const after = await probe(page)
+      return { overlay, frozenWave: before.director.phase === after.director.phase }
+    },
+    assert: (s) => [
+      ['losing the mouse pauses the run', s.paused === true],
+      ['the overlay is shown', s.overlay === 1],
+      ['still mid-run rather than ended', s.phase === 'playing'],
+    ],
+  },
+  {
+    name: '24-tuning-panel',
+    minStd: 14,
+    async run(page) {
+      await startGame(page, { calm: true })
+      // leva's own class names are content-hashed, so this asserts on the
+      // thing the player actually sees: the panel's title bar.
+      const title = () => page.evaluate(() => document.body.innerText.includes('TUNING'))
+      const hiddenAtFirst = await title()
+      await page.keyboard.press('`')
+      await page.waitForTimeout(800)
+      const shown = await title()
+      await page.keyboard.press('`')
+      await page.waitForTimeout(600)
+      const hiddenAgain = await title()
+      return { hiddenAtFirst, shown, hiddenAgain }
+    },
+    assert: (s) => [
+      ['the panel stays out of the way until asked for', s.hiddenAtFirst === false],
+      ['backtick opens the tuning panel', s.shown === true],
+      ['backtick closes it again', s.hiddenAgain === false],
     ],
   },
 ]
