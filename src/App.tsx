@@ -59,13 +59,13 @@ import type { EnemyKind } from './config'
       const d = Math.hypot(e.pos.x - playerState.pos.x, e.pos.z - playerState.pos.z)
       if (d < bestD) { bestD = d; best = e }
     }
-    if (!best) return false
+    if (!best) return null
     const dx = best.pos.x - playerState.pos.x
     const dz = best.pos.z - playerState.pos.z
     look.yaw = Math.atan2(-dx, -dz)
     const dy = best.pos.y + ENEMIES[best.kind].height * 0.5 - (playerState.pos.y + 0.4)
     look.pitch = Math.atan2(dy, Math.hypot(dx, dz))
-    return true
+    return { kind: best.kind, dist: Math.hypot(dx, dz) }
   },
   debugSpawnAhead(kind: EnemyKind, dist: number, sideways = 0) {
     const fx = -Math.sin(look.yaw)

@@ -100,11 +100,15 @@ export const BATTERY = {
   chambers: 6,
   startingSpares: 8,
   /**
-   * Spares granted between waves. Deliberately about one well-played wave's
-   * worth: play well and you roughly break even, play sloppily and the
-   * reserve drains. See analyseRun() in game/economy.ts.
+   * Spares granted between waves.
+   *
+   * Set from measured playthroughs, not from the static analysis alone: a bot
+   * that picks the right shot per enemy but never groups swarms finished the
+   * run on 1 spare at 2, which leaves a human -- who also misses -- no room at
+   * all. At 3 that run finishes around 60% of budget while full-charge spam
+   * still runs dry in wave 3. See scripts/dev/playthrough.mjs.
    */
-  waveRefill: 2,
+  waveRefill: 3,
   reloadTime: 1.15,
 }
 

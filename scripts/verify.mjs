@@ -464,8 +464,8 @@ const SCENARIOS = [
     assert: (s) => [
       ['the wave was cleared by shooting', s.stats.enemyKills >= 7],
       ['the director advanced', s.wave === 1 && s.director.waveIndex === 1],
-      // Between-wave resupply: 8 spares to start, +2 on clear.
-      ['spares were resupplied between waves', s.spares === 10],
+      // Between-wave resupply: 8 spares to start, +3 on clear.
+      ['spares were resupplied between waves', s.spares === 11],
     ],
   },
   {
