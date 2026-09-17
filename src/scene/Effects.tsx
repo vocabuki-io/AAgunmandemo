@@ -1,8 +1,14 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { useLayoutEffect, useMemo, useRef } from 'react'
-import { AdditiveBlending, Color, InstancedMesh, Object3D } from 'three'
-import { flashes, rings, sparks } from '../game/effects'
+import {
+  AdditiveBlending, BufferAttribute, BufferGeometry, Color, InstancedMesh,
+  LineSegments, Object3D,
+} from 'three'
+import { arcs, flashes, rings, sparks } from '../game/effects'
 import { makeGlowDisc, makeGlowRing } from './glow'
+
+const ARC_SEGS = 7
+const ARC_VERTS = arcs.length * ARC_SEGS * 2
 
 const dummy = new Object3D()
 const col = new Color()
@@ -16,7 +22,15 @@ export function Effects() {
   const sparkRef = useRef<InstancedMesh>(null)
   const flashRef = useRef<InstancedMesh>(null)
   const ringRef = useRef<InstancedMesh>(null)
+  const arcRef = useRef<LineSegments>(null)
   const camera = useThree((s) => s.camera)
+
+  const arcGeo = useMemo(() => {
+    const g = new BufferGeometry()
+    g.setAttribute('position', new BufferAttribute(new Float32Array(ARC_VERTS * 3), 3))
+    g.setAttribute('color', new BufferAttribute(new Float32Array(ARC_VERTS * 3), 3))
+    return g
+  }, [])
 
   const discGeo = useMemo(() => makeGlowDisc(20), [])
   const ringGeo = useMemo(() => makeGlowRing(44, 0.72), [])
@@ -103,6 +117,48 @@ export function Effects() {
       r.instanceMatrix.needsUpdate = true
       if (r.instanceColor) r.instanceColor.needsUpdate = true
     }
+
+    // Chain lightning: a jagged polyline per arc, shape frozen by its seed so
+    // it reads as one discharge fading rather than a flickering scribble.
+    const a = arcRef.current
+    if (a) {
+      const pos = arcGeo.getAttribute('position') as BufferAttribute
+      const colAttr = arcGeo.getAttribute('color') as BufferAttribute
+      const P = pos.array as Float32Array
+      const C = colAttr.array as Float32Array
+      let k = 0
+      for (const arc of arcs) {
+        if (!arc.alive) {
+          for (let i = 0; i < ARC_SEGS * 2; i++) {
+            P[k * 3] = 0; P[k * 3 + 1] = -9999; P[k * 3 + 2] = 0
+            C[k * 3] = 0; C[k * 3 + 1] = 0; C[k * 3 + 2] = 0
+            k++
+          }
+          continue
+        }
+        const t = Math.max(0, arc.life / arc.maxLife)
+        const amp = arc.from.distanceTo(arc.to) * 0.1
+        let px = arc.from.x, py = arc.from.y, pz = arc.from.z
+        for (let s2 = 0; s2 < ARC_SEGS; s2++) {
+          const u = (s2 + 1) / ARC_SEGS
+          const wob = s2 === ARC_SEGS - 1 ? 0 : amp
+          const h = Math.sin(arc.seed + s2 * 12.9898) * 43758.5453
+          const h2 = Math.sin(arc.seed + s2 * 78.233) * 12345.678
+          const nx = arc.from.x + (arc.to.x - arc.from.x) * u + ((h % 1) - 0.5) * wob * 2
+          const ny = arc.from.y + (arc.to.y - arc.from.y) * u + ((h2 % 1) - 0.5) * wob * 2
+          const nz = arc.from.z + (arc.to.z - arc.from.z) * u + (((h * h2) % 1) - 0.5) * wob * 2
+          P[k * 3] = px; P[k * 3 + 1] = py; P[k * 3 + 2] = pz
+          C[k * 3] = arc.color.r * t * 2.4; C[k * 3 + 1] = arc.color.g * t * 2.4; C[k * 3 + 2] = arc.color.b * t * 2.4
+          k++
+          P[k * 3] = nx; P[k * 3 + 1] = ny; P[k * 3 + 2] = nz
+          C[k * 3] = arc.color.r * t * 2.4; C[k * 3 + 1] = arc.color.g * t * 2.4; C[k * 3 + 2] = arc.color.b * t * 2.4
+          k++
+          px = nx; py = ny; pz = nz
+        }
+      }
+      pos.needsUpdate = true
+      colAttr.needsUpdate = true
+    }
   })
 
   return (
@@ -121,6 +177,11 @@ export function Effects() {
         <primitive object={ringGeo} attach="geometry" />
         <meshBasicMaterial vertexColors toneMapped={false} blending={AdditiveBlending} depthWrite={false} />
       </instancedMesh>
+
+      <lineSegments ref={arcRef} frustumCulled={false}>
+        <primitive object={arcGeo} attach="geometry" />
+        <lineBasicMaterial vertexColors toneMapped={false} blending={AdditiveBlending} depthWrite={false} />
+      </lineSegments>
     </group>
   )
 }

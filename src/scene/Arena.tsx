@@ -2,11 +2,21 @@ import { useMemo } from 'react'
 import { CuboidCollider, CylinderCollider, RigidBody } from '@react-three/rapier'
 import { ARENA } from '../config'
 import { mulberry32 } from '../game/rng'
+import { setPillars } from '../game/arenaLayout'
 
 type Pillar = { x: number; z: number; h: number; r: number; rot: number; lit: boolean }
 
+let cached: ReturnType<typeof build> | null = null
+
 export function useArenaLayout() {
-  return useMemo(() => {
+  if (!cached) cached = build()
+  return cached
+}
+
+/** Built once at module scope so non-React systems (enemy steering) can read
+ *  the same obstacle list the renderer uses. */
+function build() {
+  {
     const rnd = mulberry32(0xa11ce)
     const pillars: Pillar[] = []
     for (const ring of ARENA.pillarRings) {
@@ -36,8 +46,9 @@ export function useArenaLayout() {
         dark: rnd() < 0.5,
       }
     })
+    setPillars(pillars.map((p) => ({ x: p.x, z: p.z, r: p.r })))
     return { pillars, debris }
-  }, [])
+  }
 }
 
 export function Arena() {

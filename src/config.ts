@@ -126,19 +126,21 @@ export const ENEMIES: Record<EnemyKind, {
   armored: {
     hp: 85, speed: 2.0, radius: 0.95, height: 2.3, damage: 18,
     attackRange: 2.2, attackInterval: 1.5, armorVolts: 220, arcTaken: 0.35,
-    color: '#4a4036', accent: '#ff2f8e', score: 100,
+    // Cold steel, deliberately unlike the warm-brown girders so a wall of
+    // armour never reads as scenery.
+    color: '#6d7787', accent: '#ff2f8e', score: 100,
   },
   // Weak, numerous, packs tight. Made to be deleted by one wide arc.
   swarm: {
     hp: 14, speed: 4.3, radius: 0.42, height: 1.0, damage: 6,
     attackRange: 1.3, attackInterval: 0.85, armorVolts: 0, arcTaken: 1.35,
-    color: '#5c4a2e', accent: '#2ff2ff', score: 25,
+    color: '#7d6234', accent: '#2ff2ff', score: 25,
   },
   // Fast flanker. If you are still charging, it is already on you.
   runner: {
     hp: 22, speed: 7.4, radius: 0.5, height: 1.7, damage: 11,
     attackRange: 1.7, attackInterval: 1.0, armorVolts: 0, arcTaken: 1.0,
-    color: '#3a3f4a', accent: '#ffd23f', score: 50,
+    color: '#4e5460', accent: '#ffd23f', score: 50,
   },
 }
 

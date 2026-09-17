@@ -55,6 +55,10 @@ const probe = (page) => page.evaluate(() => {
     bolts: alive(a.bolts),
     stats: { ...a.stats },
     enemies: a.enemies ? a.enemies.filter((e) => e.alive).length : 0,
+    nearest: a.enemies
+      ? Math.min(Infinity, ...a.enemies.filter((e) => e.alive).map((e) =>
+          Math.hypot(e.pos.x - a.playerState.pos.x, e.pos.z - a.playerState.pos.z)))
+      : Infinity,
     playerY: +a.playerState.pos.y.toFixed(2),
   }
 })
@@ -189,6 +193,84 @@ const SCENARIOS = [
       ['exactly one chamber emptied', s.chambers[0] === 0 && s.chambers[1] === 600 / 6],
     ],
   },
+  {
+    name: '09-enemies',
+    minStd: 14,
+    async run(page) {
+      await startGame(page)
+      await waitForState(page, (s) => s.enemies >= 4, 'enemies to spawn')
+    },
+    assert: (s) => [
+      ['enemies are on the sand', s.enemies >= 4],
+      ['HUD enemy count matches the world', s.enemiesLeft === s.enemies],
+      ['player has not been hurt yet at spawn range', s.hp === 100],
+    ],
+  },
+  {
+    name: '10-arc-kill',
+    minStd: 14,
+    settle: 150,
+    async run(page) {
+      await startGame(page)
+      // Planted in front rather than waited for: which side the ambient
+      // spawner sends bodies from is random, and a pure-ampere bolt has to
+      // actually hit something near the pack for the charge to conduct.
+      await page.evaluate(() => {
+        for (let i = 0; i < 4; i++) window.__aa.debugSpawnAhead('swarm', 6 + i * 0.6, (i - 1.5) * 1.1)
+      })
+      await holdUntilCharged(page, { amp: true })
+      await page.mouse.up({ button: 'left' })
+      await page.waitForTimeout(1000)
+    },
+    assert: (s) => [
+      ['the bolt hit a body', s.stats.enemyHits >= 1],
+      ['the charge conducted to the rest of the pack', s.stats.arcHits >= 2],
+      // One 14.5-unit shot clears a cluster. This is why swarms want amperes.
+      ['one ampere shot killed the whole cluster', s.stats.enemyKills >= 4],
+      ['score went up', s.score > 0],
+    ],
+  },
+  {
+    name: '11-player-damage',
+    minStd: 14,
+    async run(page) {
+      await startGame(page)
+      await waitForState(page, (s) => s.stats.playerHits >= 2, 'enemies to land hits')
+    },
+    assert: (s) => [
+      ['melee contact damaged the player', s.hp < 100],
+      // 6 damage a hit; i-frames stop a crowd from deleting you in one frame.
+      ['damage matches hits taken', s.hp === 100 - s.stats.playerHits * 6],
+      ['still alive and playing', s.phase === 'playing'],
+    ],
+  },
+  {
+    name: '12-enemies-on-screen',
+    minStd: 14,
+    async run(page, ctx) {
+      await startGame(page)
+      const before = await page.screenshot()
+      await page.evaluate(() => {
+        // A wall of all three silhouettes, close enough to fill real screen
+        // area: the point is to prove the renderer draws them.
+        window.__aa.debugSpawnAhead('armored', 6, -3.4)
+        window.__aa.debugSpawnAhead('armored', 6.4, 0)
+        window.__aa.debugSpawnAhead('armored', 6, 3.4)
+        window.__aa.debugSpawnAhead('runner', 4.6, -1.8)
+        window.__aa.debugSpawnAhead('runner', 4.6, 1.8)
+        window.__aa.debugSpawnAhead('swarm', 3.6, -0.9)
+        window.__aa.debugSpawnAhead('swarm', 3.6, 0.9)
+      })
+      await page.waitForTimeout(900)
+      const after = await page.screenshot()
+      return { diff: await ctx.meanAbsDiff(page, before, after) }
+    },
+    assert: (s) => [
+      ['all three kinds spawned in front of the camera', s.enemies >= 7],
+      // A renderer that draws nothing cannot fake a changed frame.
+      ['enemies visibly changed the frame', s.diff > 3],
+    ],
+  },
 ]
 
 /**
@@ -209,6 +291,17 @@ async function holdUntilCharged(page, { volt = false, amp = false }, timeoutMs =
     if (ok) return
     if (Date.now() > deadline) throw new Error(`charge never filled: v=${c.v} a=${c.a}`)
     await page.waitForTimeout(120)
+  }
+}
+
+/** Poll the probe until `pred(state)` holds. */
+async function waitForState(page, pred, label, timeoutMs = 45000) {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const st = await probe(page)
+    if (pred(st)) return st
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${label}: ${JSON.stringify(st)}`)
+    await page.waitForTimeout(200)
   }
 }
 
@@ -266,6 +359,33 @@ async function imageStats(page, pngBuffer) {
   }, b64)
 }
 
+/**
+ * Mean absolute luminance difference between two frames, computed in the
+ * browser. Lets a scenario assert that adding something to the world actually
+ * changed the picture -- a renderer that draws nothing cannot fake this.
+ */
+async function meanAbsDiff(page, a, b) {
+  return page.evaluate(async ([x, y]) => {
+    const load = async (d) => {
+      const blob = await (await fetch('data:image/png;base64,' + d)).blob()
+      const bmp = await createImageBitmap(blob)
+      const cv = new OffscreenCanvas(bmp.width, bmp.height)
+      const ctx = cv.getContext('2d')
+      ctx.drawImage(bmp, 0, 0)
+      return ctx.getImageData(0, 0, bmp.width, bmp.height).data
+    }
+    const [pa, pb] = await Promise.all([load(x), load(y)])
+    let sum = 0
+    const n = pa.length / 4
+    for (let i = 0; i < pa.length; i += 4) {
+      const la = 0.2126 * pa[i] + 0.7152 * pa[i + 1] + 0.0722 * pa[i + 2]
+      const lb = 0.2126 * pb[i] + 0.7152 * pb[i + 1] + 0.0722 * pb[i + 2]
+      sum += Math.abs(la - lb)
+    }
+    return sum / n
+  }, [a.toString('base64'), b.toString('base64')])
+}
+
 async function main() {
   if (!existsSync(resolve(ROOT, 'dist/index.html'))) {
     console.error('[verify] dist/index.html missing -- run `npm run build` first.')
@@ -314,7 +434,7 @@ async function main() {
       await page.goto(URL, { waitUntil: 'load' })
       await page.waitForSelector('canvas', { timeout: 20000 })
       await page.waitForTimeout(2500)
-      await sc.run(page)
+      const extra = (await sc.run(page, { meanAbsDiff })) ?? {}
       await page.waitForTimeout(sc.settle ?? 400)
 
       const shotPath = resolve(SHOTS, `${sc.name}.png`)
@@ -326,7 +446,7 @@ async function main() {
       if (errors.length) problems.push(`${errors.length} console/page error(s)`)
       if (stats.std < sc.minStd) problems.push(`std ${stats.std.toFixed(2)} < min ${sc.minStd} (near-uniform frame)`)
 
-      const state = await probe(page)
+      const state = { ...(await probe(page)), ...extra }
       const checks = sc.assert ? sc.assert(state) : []
       for (const [label, ok] of checks) if (!ok) problems.push(`assert: ${label}`)
 

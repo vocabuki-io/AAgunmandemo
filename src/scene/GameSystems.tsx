@@ -2,15 +2,21 @@ import { useFrame } from '@react-three/fiber'
 import { useRapier } from '@react-three/rapier'
 import { useRef } from 'react'
 import { Color, Vector3 } from 'three'
-import { BATTERY, SHOT } from '../config'
+import { BATTERY, ENEMIES, SHOT, SPAWN } from '../config'
 import { keys, mouse } from '../input'
 import { camState, charge, clampDt, damp, playerState, stats } from '../game/runtime'
 import { bolts, clearBolts, computeShot, spawnBolt, type Bolt, type ShotSpec } from '../game/shooting'
-import { spawnFlash, spawnRing, spawnSparks, updateEffects } from '../game/effects'
-import { boltColor, CYAN, MAGENTA, WHITE_HOT } from '../game/palette'
+import { PLAYER } from '../config'
+import { spawnArc, spawnFlash, spawnRing, spawnSparks, updateEffects } from '../game/effects'
+import {
+  aliveCount, enemies, enemyCenter, killEnemy, spawnEnemy, updateEnemies, type Enemy,
+} from '../game/enemies'
+import { boltColor, AMBER, CYAN, MAGENTA, WHITE_HOT } from '../game/palette'
 import { useGame } from '../store'
 
 const aimPoint = new Vector3()
+const eCenter = new Vector3()
+const eCenter2 = new Vector3()
 const boltDir = new Vector3()
 const impactPoint = new Vector3()
 const tmpColor = new Color()
@@ -51,6 +57,28 @@ function impact(point: Vector3, b: Bolt) {
 }
 
 /**
+ * First point along a ray segment that enters a sphere, or null.
+ * Used for bolt-vs-enemy: enemies are not colliders, so this is the whole
+ * hit test. Sweeping the segment means a fast bolt cannot skip a body.
+ */
+function segmentSphere(
+  ox: number, oy: number, oz: number,
+  dx: number, dy: number, dz: number,
+  len: number, cx: number, cy: number, cz: number, r: number,
+): number | null {
+  const mx = ox - cx
+  const my = oy - cy
+  const mz = oz - cz
+  const b = mx * dx + my * dy + mz * dz
+  const c = mx * mx + my * my + mz * mz - r * r
+  if (c > 0 && b > 0) return null
+  const disc = b * b - c
+  if (disc < 0) return null
+  const t = Math.max(0, -b - Math.sqrt(disc))
+  return t <= len ? t : null
+}
+
+/**
  * The single ordered game step. Everything that must happen in a known order
  * (input -> fire -> bolts -> effects) lives here rather than being scattered
  * across component-local useFrame callbacks.
@@ -58,6 +86,7 @@ function impact(point: Vector3, b: Bolt) {
 export function GameSystems() {
   const { world, rapier } = useRapier()
   const prevReload = useRef(false)
+  const spawnTimer = useRef(1.5)
 
   useFrame((_, rawDt) => {
     const dt = clampDt(rawDt)
@@ -128,9 +157,32 @@ export function GameSystems() {
       })
     }
 
+    playerState.invuln = Math.max(0, playerState.invuln - dt)
+    playerState.hitFlash = damp(playerState.hitFlash, 0, 4, dt)
+
     stepBolts(dt)
+    if (playing) {
+      updateEnemies(dt, onEnemyAttack)
+      runSpawner(dt)
+      const n = aliveCount()
+      if (n !== useGame.getState().enemiesLeft) useGame.getState().setEnemiesLeft(n)
+    }
     updateEffects(dt)
   })
+
+  /**
+   * Placeholder director: keeps a handful of bodies on the sand so the combat
+   * loop is playable. Wave progression replaces this in task 6.
+   */
+  function runSpawner(dt: number) {
+    spawnTimer.current -= dt
+    if (spawnTimer.current > 0) return
+    spawnTimer.current = SPAWN.interval
+    if (aliveCount() >= 6) return
+    const ang = Math.random() * Math.PI * 2
+    const d = SPAWN.ringMin + Math.random() * (SPAWN.ringMax - SPAWN.ringMin)
+    spawnEnemy('swarm', playerState.pos.x + Math.cos(ang) * d, playerState.pos.z + Math.sin(ang) * d)
+  }
 
   function fire(g: ReturnType<typeof useGame.getState>) {
     const raw = computeShot(charge.v, charge.a)
@@ -181,6 +233,47 @@ export function GameSystems() {
     camState.fovKick += 2.5 + spec.cost * 0.06
   }
 
+  function hurt(e: Enemy, dmg: number, stun: number) {
+    const g = useGame.getState()
+    e.hp -= dmg
+    e.hitFlash = 1
+    e.stun = Math.max(e.stun, stun)
+    stats.enemyHits++
+    if (e.hp <= 0) {
+      const cfg = ENEMIES[e.kind]
+      enemyCenter(e, eCenter)
+      spawnFlash(eCenter, 1.1 + cfg.radius, WHITE_HOT, 0.12)
+      spawnFlash(eCenter, 1.9 + cfg.radius * 1.6, cfg.accent, 0.26)
+      spawnRing(eCenter, cfg.radius * 2.6, cfg.accent, 0.34, false)
+      spawnSparks(eCenter, 16, 7 + cfg.radius * 5, cfg.accent, {
+        spread: 1.2, up: 0.7, life: 0.7, size: 0.1,
+      })
+      spawnSparks(eCenter, 8, 4, '#ffd9a0', { spread: 1, up: 0.5, life: 0.55, size: 0.07 })
+      killEnemy(e)
+      g.addScore(cfg.score)
+      camState.shake += 0.05
+    }
+  }
+
+  /** Amperes dumped into a body conduct outward to everything nearby. */
+  function arcBlast(center: Vector3, b: Bolt, exceptId: number) {
+    const s = b.spec
+    if (s.arcRadius < 0.5) return
+    spawnRing(center, s.arcRadius, MAGENTA, 0.4)
+    for (const e of enemies) {
+      if (!e.alive || e.id === exceptId) continue
+      enemyCenter(e, eCenter2)
+      const d = eCenter2.distanceTo(center)
+      if (d > s.arcRadius) continue
+      const cfg = ENEMIES[e.kind]
+      // Linear falloff, never below 35% at the rim.
+      const falloff = 1 - (d / s.arcRadius) * 0.65
+      spawnArc(center, eCenter2, MAGENTA, 0.22)
+      stats.arcHits++
+      hurt(e, s.arcDamage * falloff * cfg.arcTaken, s.stun * cfg.arcTaken)
+    }
+  }
+
   function stepBolts(dt: number) {
     for (const b of bolts) {
       if (!b.alive) continue
@@ -195,10 +288,73 @@ export function GameSystems() {
         ),
         step + SHOT.bulletRadius, true, rapier.QueryFilterFlags.EXCLUDE_DYNAMIC,
       )
+      const worldT = hit ? hit.timeOfImpact : Infinity
+
+      // Collect every body the segment enters this frame, nearest first, so a
+      // piercing bolt consumes them in the order it actually reaches them.
+      const cands: { t: number; e: Enemy }[] = []
+      for (const e of enemies) {
+        if (!e.alive || b.hits.includes(e.id)) continue
+        const cfg = ENEMIES[e.kind]
+        enemyCenter(e, eCenter)
+        const t = segmentSphere(
+          b.pos.x, b.pos.y, b.pos.z, b.dir.x, b.dir.y, b.dir.z,
+          step + SHOT.bulletRadius,
+          eCenter.x, eCenter.y, eCenter.z, cfg.radius + SHOT.bulletRadius,
+        )
+        if (t !== null && t < worldT) cands.push({ t, e })
+      }
+      cands.sort((p, q) => p.t - q.t)
+
+      let stopped = false
+      for (const { t, e } of cands) {
+        if (!e.alive) continue
+        const cfg = ENEMIES[e.kind]
+        impactPoint.copy(b.pos).addScaledVector(b.dir, t)
+        b.hits.push(e.id)
+
+        if (b.spec.volts < cfg.armorVolts) {
+          // Not enough push to break the plating: the bolt simply bounces.
+          spawnFlash(impactPoint, 0.8, AMBER, 0.13)
+          spawnSparks(impactPoint, 10, 7, AMBER, { spread: 1.2, up: 0.6, life: 0.4, size: 0.07 })
+          e.hitFlash = Math.max(e.hitFlash, 0.45)
+          stopped = true
+          break
+        }
+
+        boltColor(tmpColor, b.spec.hue)
+        spawnFlash(impactPoint, 0.6 + b.spec.amps * 0.1, WHITE_HOT, 0.1)
+        spawnSparks(impactPoint, Math.round(6 + b.spec.amps * 1.6), 5 + b.spec.volts * 0.012, tmpColor, {
+          spread: 1, up: 0.5, life: 0.45, size: 0.08,
+        })
+        hurt(e, b.spec.damage, b.spec.stun * 0.5)
+        // The charge dumps into the FIRST body it enters; piercing does not
+        // let one bolt detonate an arc per target.
+        if (!b.arcSpent) {
+          b.arcSpent = true
+          arcBlast(impactPoint, b, e.id)
+        }
+
+        if (b.pierceLeft > 0) {
+          b.pierceLeft--
+        } else {
+          stopped = true
+          break
+        }
+      }
+
+      if (stopped) {
+        b.alive = false
+        continue
+      }
 
       if (hit) {
         impactPoint.copy(b.pos).addScaledVector(b.dir, Math.max(0, hit.timeOfImpact - 0.05))
         impact(impactPoint, b)
+        if (!b.arcSpent) {
+          b.arcSpent = true
+          arcBlast(impactPoint, b, -1)
+        }
         b.alive = false
         stats.worldImpacts++
         continue
@@ -214,6 +370,17 @@ export function GameSystems() {
         stats.boltsExpired++
       }
     }
+  }
+
+  function onEnemyAttack(e: Enemy, dmg: number) {
+    if (playerState.invuln > 0) return
+    playerState.invuln = PLAYER.iFrames
+    playerState.hitFlash = 1
+    stats.playerHits++
+    camState.shake += 0.3
+    enemyCenter(e, eCenter)
+    spawnSparks(eCenter, 8, 5, ENEMIES[e.kind].accent, { spread: 1, up: 0.5, life: 0.35, size: 0.07 })
+    useGame.getState().damagePlayer(dmg)
   }
 
   return null

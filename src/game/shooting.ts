@@ -67,6 +67,8 @@ export type Bolt = {
   power: number
   traveled: number
   pierceLeft: number
+  /** The charge only detonates once, on the first body entered. */
+  arcSpent: boolean
   /** Enemy ids already punched through, so one bolt cannot hit twice. */
   hits: number[]
   age: number
@@ -83,6 +85,7 @@ export const bolts: Bolt[] = Array.from({ length: 64 }, () => ({
   power: 1,
   traveled: 0,
   pierceLeft: 0,
+  arcSpent: false,
   hits: [],
   age: 0,
 }))
@@ -105,6 +108,7 @@ export function spawnBolt(origin: Vector3, dir: Vector3, spec: ShotSpec, power: 
   bolt.power = power
   bolt.traveled = 0
   bolt.pierceLeft = spec.pierce
+  bolt.arcSpent = false
   bolt.hits.length = 0
   bolt.age = 0
   stats.boltsSpawned++

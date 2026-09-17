@@ -7,6 +7,7 @@ import { Arena } from './scene/Arena'
 import { Bolts } from './scene/Bolts'
 import { ChargeAura } from './scene/ChargeAura'
 import { Effects } from './scene/Effects'
+import { Enemies } from './scene/Enemies'
 import { GameSystems } from './scene/GameSystems'
 import { Crosshair } from './ui/Crosshair'
 import { CameraRig } from './scene/CameraRig'
@@ -18,10 +19,30 @@ import { useGame } from './store'
 import { attachInput, look, pointer, requestLock } from './input'
 import { camState, charge, playerState, stats } from './game/runtime'
 import { bolts } from './game/shooting'
+import { enemies, spawnEnemy } from './game/enemies'
+import type { EnemyKind } from './config'
 
-// Debug probe used by scripts/verify.mjs and by hand in the console.
+/**
+ * Debug probe, used by scripts/verify.mjs and by hand in the console.
+ *
+ * `debugSpawnAhead` exists because Chrome's pointer lock makes it impossible
+ * to aim the camera from CDP-synthesised mouse input -- every move is reported
+ * along with its own cancelling warp. Without it, verify can prove enemies
+ * exist and die but can never get one into frame to prove they are drawn at
+ * all. It goes through the ordinary spawn path; nothing here is a shortcut
+ * around game logic.
+ */
 ;(window as unknown as Record<string, unknown>).__aa = {
-  camState, charge, playerState, look, useGame, bolts, stats,
+  camState, charge, playerState, look, useGame, bolts, stats, enemies,
+  debugSpawnAhead(kind: EnemyKind, dist: number, sideways = 0) {
+    const fx = -Math.sin(look.yaw)
+    const fz = -Math.cos(look.yaw)
+    return spawnEnemy(
+      kind,
+      playerState.pos.x + fx * dist + Math.cos(look.yaw) * sideways,
+      playerState.pos.z + fz * dist - Math.sin(look.yaw) * sideways,
+    )
+  },
 }
 
 function Stage() {
@@ -35,6 +56,7 @@ function Stage() {
         <Player />
         <CameraRig />
         <GameSystems />
+        <Enemies />
         <Bolts />
         <ChargeAura />
         <Effects />

@@ -35,6 +35,18 @@ export type Flash = {
   color: Color
 }
 
+/** A visible discharge jumping from an impact to a conducting body. */
+export type Arc = {
+  alive: boolean
+  from: Vector3
+  to: Vector3
+  life: number
+  maxLife: number
+  color: Color
+  /** Fixed jitter seed so the bolt shape holds still while it fades. */
+  seed: number
+}
+
 const mk = <T>(n: number, f: () => T) => Array.from({ length: n }, f)
 
 export const sparks: Spark[] = mk(360, () => ({
@@ -50,7 +62,13 @@ export const flashes: Flash[] = mk(48, () => ({
   alive: false, pos: new Vector3(), life: 0, maxLife: 1, size: 1, color: new Color(),
 }))
 
+export const arcs: Arc[] = mk(40, () => ({
+  alive: false, from: new Vector3(), to: new Vector3(),
+  life: 0, maxLife: 1, color: new Color(), seed: 0,
+}))
+
 let sparkCursor = 0
+let arcCursor = 0
 let ringCursor = 0
 let flashCursor = 0
 
@@ -116,7 +134,24 @@ export function spawnFlash(pos: Vector3, size: number, color: Color | string, li
   f.color.set(color as string)
 }
 
+export function spawnArc(from: Vector3, to: Vector3, color: Color | string, life = 0.24) {
+  const [a, next] = take(arcs, arcCursor)
+  arcCursor = next
+  a.alive = true
+  a.from.copy(from)
+  a.to.copy(to)
+  a.life = life
+  a.maxLife = life
+  a.seed = Math.random() * 1000
+  a.color.set(color as string)
+}
+
 export function updateEffects(dt: number) {
+  for (const a of arcs) {
+    if (!a.alive) continue
+    a.life -= dt
+    if (a.life <= 0) a.alive = false
+  }
   for (const s of sparks) {
     if (!s.alive) continue
     s.life -= dt
@@ -143,6 +178,7 @@ export function updateEffects(dt: number) {
 }
 
 export function clearEffects() {
+  for (const a of arcs) a.alive = false
   for (const s of sparks) s.alive = false
   for (const r of rings) r.alive = false
   for (const f of flashes) f.alive = false
