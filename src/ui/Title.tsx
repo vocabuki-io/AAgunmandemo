@@ -1,3 +1,4 @@
+import { initAudio } from '../game/audio'
 import { useGame } from '../store'
 
 const wrap: React.CSSProperties = {
@@ -8,7 +9,9 @@ const wrap: React.CSSProperties = {
 }
 
 export function Title() {
-  const start = useGame((s) => s.start)
+  const startRun = useGame((s) => s.start)
+  // The audio context has to be created inside a real user gesture.
+  const start = () => { initAudio(); startRun() }
   return (
     <div style={wrap}>
       <div style={{ fontSize: 13, color: '#ff2f9e', letterSpacing: '0.5em' }}>ALKALINE ARENA</div>

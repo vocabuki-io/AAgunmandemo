@@ -22,6 +22,7 @@ import { Result } from './ui/Result'
 import { Title } from './ui/Title'
 import { useGame } from './store'
 import { attachInput, look, pointer, requestLock } from './input'
+import { audio, sfxLose, sfxWin } from './game/audio'
 import { camState, charge, debug, playerState, stats } from './game/runtime'
 import { bolts } from './game/shooting'
 import { clearEnemies, enemies, spawnEnemy } from './game/enemies'
@@ -41,7 +42,7 @@ import type { EnemyKind } from './config'
  * around game logic.
  */
 ;(window as unknown as Record<string, unknown>).__aa = {
-  camState, charge, playerState, look, useGame, bolts, stats, enemies, analyseEconomy, debug,
+  camState, charge, playerState, look, useGame, bolts, stats, enemies, analyseEconomy, debug, audio,
   debugClearEnemies: clearEnemies, director,
   /**
    * Point the view at the nearest body. Writes only to `look`, exactly what
@@ -113,6 +114,11 @@ export default function App() {
     const canvas = host.current?.querySelector('canvas')
     if (canvas) attachInput(canvas)
   }, [])
+
+  useEffect(() => {
+    if (phase === 'won') sfxWin()
+    if (phase === 'lost') sfxLose()
+  }, [phase])
 
   useEffect(() => {
     if (phase !== 'playing') return

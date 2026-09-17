@@ -56,6 +56,7 @@ const probe = (page) => page.evaluate(() => {
     amp: +a.charge.a.toFixed(3),
     bolts: alive(a.bolts),
     stats: { ...a.stats },
+    audio: { ready: a.audio.ready, played: a.audio.played, muted: a.audio.muted },
     enemies: a.enemies ? a.enemies.filter((e) => e.alive).length : 0,
     kinds: ['armored', 'swarm', 'runner'].reduce((o, k) => {
       o[k] = a.enemies.filter((e) => e.alive && e.kind === k).length
@@ -488,6 +489,37 @@ const SCENARIOS = [
       ['the director parks in the cleared state', s.director.phase === 'cleared'],
       // No resupply after the final wave -- the run is over.
       ['no pointless resupply after the last wave', s.spares === 8],
+    ],
+  },
+  {
+    name: '22-audio',
+    minStd: 14,
+    settle: 150,
+    async run(page) {
+      await startGame(page, { calm: true })
+      const before = await page.evaluate(() => window.__aa.audio.played)
+      await holdUntilCharged(page, { volt: true, amp: true })
+      await page.mouse.up({ button: 'left' })
+      await page.mouse.up({ button: 'right' })
+      await page.waitForTimeout(1400)
+      const after = await page.evaluate(() => window.__aa.audio.played)
+      const muted = await page.evaluate(() => {
+        // M toggles mute; the press must survive a slow frame like any other.
+        const was = window.__aa.audio.muted
+        return { was }
+      })
+      await page.keyboard.press('m')
+      await page.waitForTimeout(600)
+      const nowMuted = await page.evaluate(() => window.__aa.audio.muted)
+      return { sfxBefore: before, sfxAfter: after, wasMuted: muted.was, nowMuted }
+    },
+    assert: (s) => [
+      // Everything is synthesised at runtime, so "ready" means a live
+      // AudioContext with the charge loops already running.
+      ['the audio context came up', s.audio.ready === true],
+      ['firing actually scheduled sound', s.sfxAfter > s.sfxBefore],
+      ['a shot is more than one voice', s.sfxAfter - s.sfxBefore >= 3],
+      ['M toggles mute', s.wasMuted === false && s.nowMuted === true],
     ],
   },
 ]

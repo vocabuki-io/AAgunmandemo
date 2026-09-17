@@ -16,6 +16,10 @@ import {
 import { remaining, resetDirector, updateDirector } from '../game/director'
 import { boltColor, AMBER, CYAN, MAGENTA, WHITE_HOT } from '../game/palette'
 import { useGame } from '../store'
+import {
+  audio, setMuted, sfxArc, sfxDryFire, sfxImpact, sfxKill, sfxPlayerHit, sfxReloadDone,
+  sfxReloadStart, sfxRicochet, sfxShot, sfxWaveClear, sfxWaveStart, suspendAudio, updateAudio,
+} from '../game/audio'
 
 const aimPoint = new Vector3()
 const eCenter = new Vector3()
@@ -121,7 +125,10 @@ export function GameSystems() {
     const wantsReload = consumePress('KeyR')
     if (playing && wantsReload) {
       g.beginReload()
-      if (useGame.getState().reloading) charge.reloadTimer = BATTERY.reloadTime
+      if (useGame.getState().reloading) {
+        charge.reloadTimer = BATTERY.reloadTime
+        sfxReloadStart()
+      }
     }
 
     // Out of juice in the gun AND in your pockets: the run is over. Checked
@@ -139,6 +146,7 @@ export function GameSystems() {
         const before = useGame.getState().spares
         g.finishReload()
         stats.reloads++
+        sfxReloadDone()
         const used = before - useGame.getState().spares
         useGame.getState().pushLog(`RELOAD — ${used} CELL${used === 1 ? '' : 'S'}`, 'v')
         spawnSparks(playerState.muzzle, 7, 3.2, CYAN, { spread: 1, up: 0.6, life: 0.4, size: 0.06 })
@@ -170,6 +178,10 @@ export function GameSystems() {
 
     charge.vSmooth = damp(charge.vSmooth, charge.v, 10, dt)
     charge.aSmooth = damp(charge.aSmooth, charge.a, 10, dt)
+
+    if (consumePress('KeyM')) setMuted(!audio.muted)
+    if (playing) updateAudio(charge.v, charge.a)
+    else suspendAudio()
 
     // Amperes crackle around you while they build.
     if (charge.a > 0.05 && Math.random() < charge.a * dt * 42) {
@@ -203,12 +215,14 @@ export function GameSystems() {
       const g = useGame.getState()
       g.setWave(index)
       g.pushLog(`WAVE ${index + 1} — ${WAVES[index].label}`, 'a')
+      sfxWaveStart()
     },
     onWaveCleared(index: number) {
       const g = useGame.getState()
       if (index >= WAVES.length - 1) return
       g.grantSpares(BATTERY.waveRefill)
       g.pushLog(`WAVE CLEAR — +${BATTERY.waveRefill} CELLS`, 'v')
+      sfxWaveClear()
       spawnRing(playerState.pos, 7, CYAN, 0.9)
       spawnSparks(playerState.pos, 24, 7, CYAN, { spread: 1.2, up: 1.1, life: 1.1, size: 0.09 })
     },
@@ -232,6 +246,7 @@ export function GameSystems() {
       // Dry click: the cylinder is flat.
       charge.dryPulse = 0.25
       stats.dryFires++
+      sfxDryFire()
       spawnSparks(playerState.muzzle, 3, 1.4, '#886644', { spread: 0.6, up: 0.3, life: 0.25, size: 0.04 })
       useGame.getState().pushLog('CYLINDER DEAD — PRESS R', 'warn')
       return
@@ -263,6 +278,7 @@ export function GameSystems() {
       spread: 0.55, up: 0.25, life: 0.3, size: 0.05,
     })
 
+    sfxShot(spec)
     charge.firedPulse = 0.12
     camState.shake += 0.05 + spec.cost * 0.0035
     camState.fovKick += 2.5 + spec.cost * 0.06
@@ -285,6 +301,7 @@ export function GameSystems() {
       })
       spawnSparks(eCenter, 8, 4, '#ffd9a0', { spread: 1, up: 0.5, life: 0.55, size: 0.07 })
       killEnemy(e)
+      sfxKill(e.kind)
       g.addScore(cfg.score)
       camState.shake += 0.05
       hitStop(cfg.hp > 50 ? 0.075 : 0.035, 0.22)
@@ -305,6 +322,7 @@ export function GameSystems() {
       // Linear falloff, never below 35% at the rim.
       const falloff = 1 - (d / s.arcRadius) * 0.65
       spawnArc(center, eCenter2, MAGENTA, 0.22)
+      sfxArc()
       stats.arcHits++
       hurt(e, s.arcDamage * falloff * cfg.arcTaken, s.stun * cfg.arcTaken)
     }
@@ -354,6 +372,7 @@ export function GameSystems() {
           spawnFlash(impactPoint, 0.8, AMBER, 0.13)
           spawnSparks(impactPoint, 10, 7, AMBER, { spread: 1.2, up: 0.6, life: 0.4, size: 0.07 })
           e.hitFlash = Math.max(e.hitFlash, 0.45)
+          sfxRicochet()
           stopped = true
           break
         }
@@ -387,6 +406,7 @@ export function GameSystems() {
       if (hit) {
         impactPoint.copy(b.pos).addScaledVector(b.dir, Math.max(0, hit.timeOfImpact - 0.05))
         impact(impactPoint, b)
+        sfxImpact(b.spec.volts, b.spec.amps)
         if (!b.arcSpent) {
           b.arcSpent = true
           arcBlast(impactPoint, b, -1)
@@ -413,6 +433,7 @@ export function GameSystems() {
     playerState.invuln = PLAYER.iFrames
     playerState.hitFlash = 1
     stats.playerHits++
+    sfxPlayerHit()
     camState.shake += 0.3
     enemyCenter(e, eCenter)
     spawnSparks(eCenter, 8, 5, ENEMIES[e.kind].accent, { spread: 1, up: 0.5, life: 0.35, size: 0.07 })

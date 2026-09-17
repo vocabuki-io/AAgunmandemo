@@ -1,4 +1,5 @@
 import { BATTERY } from '../config'
+import { initAudio } from '../game/audio'
 import { stats } from '../game/runtime'
 import { useGame } from '../store'
 
@@ -26,7 +27,8 @@ export function Result() {
   const shotsFired = useGame((s) => s.shotsFired)
   const spentUnits = useGame((s) => s.spentUnits)
   const deathReason = useGame((s) => s.deathReason)
-  const start = useGame((s) => s.start)
+  const startRun = useGame((s) => s.start)
+  const start = () => { initAudio(); startRun() }
 
   const won = phase === 'won'
   const perShot = shotsFired > 0 ? (spentUnits / shotsFired).toFixed(1) : '0.0'
