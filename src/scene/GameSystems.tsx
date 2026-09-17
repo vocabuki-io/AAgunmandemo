@@ -105,14 +105,23 @@ export function GameSystems() {
     }
     prevReload.current = rDown
 
+    // Out of juice in the gun AND in your pockets: the run is over. Checked
+    // before charging so you never stand there holding a dead trigger.
+    if (playing && !g.reloading && g.spares <= 0 && g.chambers.every((c) => c <= 0)) {
+      g.lose('OUT OF BATTERIES')
+    }
+
     if (g.reloading) {
       charge.reloadTimer -= dt
       charge.v = 0
       charge.a = 0
       charge.armed = false
       if (charge.reloadTimer <= 0) {
+        const before = useGame.getState().spares
         g.finishReload()
         stats.reloads++
+        const used = before - useGame.getState().spares
+        useGame.getState().pushLog(`RELOAD — ${used} CELL${used === 1 ? '' : 'S'}`, 'v')
         spawnSparks(playerState.muzzle, 7, 3.2, CYAN, { spread: 1, up: 0.6, life: 0.4, size: 0.06 })
       }
     } else if (playing) {

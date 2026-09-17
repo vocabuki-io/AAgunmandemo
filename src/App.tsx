@@ -10,6 +10,7 @@ import { Effects } from './scene/Effects'
 import { Enemies } from './scene/Enemies'
 import { GameSystems } from './scene/GameSystems'
 import { Crosshair } from './ui/Crosshair'
+import { Hud } from './ui/Hud'
 import { CameraRig } from './scene/CameraRig'
 import { Lighting } from './scene/Lighting'
 import { Player } from './scene/Player'
@@ -95,6 +96,7 @@ export default function App() {
         <Stage />
       </Canvas>
       {phase === 'playing' && <Crosshair />}
+      {phase !== 'title' && <Hud />}
       {phase === 'title' && <Title />}
     </div>
   )

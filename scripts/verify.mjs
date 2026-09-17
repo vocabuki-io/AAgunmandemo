@@ -47,6 +47,7 @@ const probe = (page) => page.evaluate(() => {
     shotsFired: s.shotsFired,
     spentUnits: +s.spentUnits.toFixed(2),
     reloading: s.reloading,
+    deathReason: s.deathReason,
     wave: s.wave,
     enemiesLeft: s.enemiesLeft,
     score: s.score,
@@ -269,6 +270,67 @@ const SCENARIOS = [
       ['all three kinds spawned in front of the camera', s.enemies >= 7],
       // A renderer that draws nothing cannot fake a changed frame.
       ['enemies visibly changed the frame', s.diff > 3],
+    ],
+  },
+  {
+    name: '13-reload',
+    minStd: 14,
+    async run(page) {
+      await startGame(page)
+      // One max-power shot empties exactly one chamber.
+      await holdUntilCharged(page, { volt: true, amp: true })
+      await page.mouse.up({ button: 'left' })
+      await page.mouse.up({ button: 'right' })
+      await waitForState(page, (s) => s.shotsFired === 1, 'the shot to leave')
+      await page.keyboard.press('r')
+      await waitForState(page, (s) => !s.reloading && s.stats.reloads === 1, 'the reload to finish')
+    },
+    assert: (s) => [
+      ['cylinder is full again', s.cylinder === 600],
+      // Only the one emptied chamber was replaced, so only one spare is gone.
+      ['exactly one spare was consumed', s.spares === 17],
+      ['not stuck in the reloading state', s.reloading === false],
+    ],
+  },
+  {
+    name: '14-reload-waste',
+    minStd: 14,
+    async run(page) {
+      await startGame(page)
+      // A chamber with charge still in it. Reloading now throws that charge
+      // away -- reloading early is how you waste batteries, and this pins it.
+      await page.evaluate(() => window.__aa.useGame.setState({
+        chambers: [40, 100, 100, 100, 100, 100], spares: 5,
+      }))
+      await page.keyboard.press('r')
+      await waitForState(page, (s) => !s.reloading && s.stats.reloads === 1, 'the reload to finish')
+    },
+    assert: (s) => [
+      ['cylinder is full', s.cylinder === 600],
+      ['a whole spare was spent', s.spares === 4],
+      // 100 units of spare bought only 60 units of capacity: the other 40
+      // went in the dirt with the part-used cell.
+      ['the part-used cell was discarded, not topped up', s.chambers[0] === 100],
+    ],
+  },
+  {
+    name: '15-out-of-batteries',
+    minStd: 14,
+    async run(page) {
+      await startGame(page)
+      await page.evaluate(() => window.__aa.useGame.setState({
+        chambers: [4, 0, 0, 0, 0, 0], spares: 0,
+      }))
+      await holdUntilCharged(page, { volt: true, amp: true })
+      await page.mouse.up({ button: 'left' })
+      await page.mouse.up({ button: 'right' })
+      await waitForState(page, (s) => s.phase !== 'playing', 'the run to end')
+    },
+    assert: (s) => [
+      ['the run ended', s.phase === 'lost'],
+      ['ended for the right reason', s.deathReason === 'OUT OF BATTERIES'],
+      // The last 4 units still fired -- a shot scaled down, not a dead trigger.
+      ['the last of the charge still fired a shot', s.shotsFired === 1 && s.spentUnits === 4],
     ],
   },
 ]

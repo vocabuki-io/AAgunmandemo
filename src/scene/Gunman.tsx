@@ -1,8 +1,10 @@
 import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { Group, Object3D } from 'three'
+import { Group, Mesh, MeshStandardMaterial, Object3D } from 'three'
+import { BATTERY } from '../config'
 import { look } from '../input'
 import { charge, clampDt, damp, playerState } from '../game/runtime'
+import { useGame } from '../store'
 
 const SAND = '#8a7043'
 const DARK = '#332921'
@@ -17,8 +19,11 @@ export function Gunman() {
   const arm = useRef<Group>(null)
   const muzzle = useRef<Object3D>(null)
   const legs = useRef<Group>(null)
+  const cylinder = useRef<Group>(null)
+  const cells = useRef<Mesh[]>([])
   const walkT = useRef(0)
   const recoil = useRef(0)
+  const spin = useRef(0)
 
   useFrame((_, rawDt) => {
     const dt = clampDt(rawDt)
@@ -31,6 +36,23 @@ export function Gunman() {
       arm.current.position.z = 0.02 + recoil.current * 0.16
     }
     if (muzzle.current) muzzle.current.getWorldPosition(playerState.muzzle)
+
+    // The six cells in the gun ARE the six chambers on the HUD: each one dims
+    // as its charge is drawn down, so the resource is readable on the weapon.
+    const st = useGame.getState()
+    for (let i = 0; i < cells.current.length; i++) {
+      const m = cells.current[i]?.material as MeshStandardMaterial | undefined
+      if (!m) continue
+      const frac = (st.chambers[i] ?? 0) / BATTERY.unitsPerCell
+      m.emissiveIntensity = 0.1 + frac * 1.5
+      m.emissive.setRGB(0.13 * frac + 0.02, 0.9 * frac + 0.04, frac + 0.05)
+    }
+    if (cylinder.current) {
+      // Spins through a full turn while reloading, then rests on a detent.
+      const target = st.reloading ? spin.current + dt * 14 : Math.round(spin.current / (Math.PI / 3)) * (Math.PI / 3)
+      spin.current = st.reloading ? target : damp(spin.current, target, 12, dt)
+      cylinder.current.rotation.y = spin.current
+    }
 
     // Legs swing with planar speed; frozen mid-air.
     const sp = Math.hypot(playerState.vel.x, playerState.vel.z)
@@ -116,6 +138,7 @@ export function Gunman() {
         </mesh>
         {/* cylinder: six AA cells, canted out so the copper caps catch light */}
         <group position={[0, -0.04, -0.66]} rotation={[Math.PI / 2, 0, 0]}>
+          <group ref={cylinder}>
           <mesh castShadow>
             <cylinderGeometry args={[0.13, 0.13, 0.2, 6]} />
             <meshStandardMaterial color="#2a2f38" flatShading roughness={0.4} metalness={0.8} />
@@ -123,12 +146,20 @@ export function Gunman() {
           {Array.from({ length: 6 }, (_, i) => {
             const ang = (i / 6) * Math.PI * 2
             return (
-              <mesh key={i} position={[Math.cos(ang) * 0.085, 0, Math.sin(ang) * 0.085]}>
-                <cylinderGeometry args={[0.03, 0.03, 0.215, 6]} />
-                <meshStandardMaterial color="#1f6f7a" emissive="#22e6ff" emissiveIntensity={0.7} flatShading />
-              </mesh>
+              <group key={i} position={[Math.cos(ang) * 0.085, 0, Math.sin(ang) * 0.085]}>
+                {/* AA cell: can plus the raised positive terminal. */}
+                <mesh ref={(el) => { if (el) cells.current[i] = el }}>
+                  <cylinderGeometry args={[0.03, 0.03, 0.2, 6]} />
+                  <meshStandardMaterial color="#1f6f7a" emissive="#22e6ff" emissiveIntensity={0.7} flatShading />
+                </mesh>
+                <mesh position={[0, 0.115, 0]}>
+                  <cylinderGeometry args={[0.013, 0.013, 0.03, 6]} />
+                  <meshStandardMaterial color="#c9a227" metalness={0.9} roughness={0.3} flatShading />
+                </mesh>
+              </group>
             )
           })}
+          </group>
         </group>
         {/* grip */}
         <mesh castShadow position={[0, -0.18, -0.58]} rotation={[0.45, 0, 0]}>

@@ -26,6 +26,7 @@ export interface GameState {
   start: () => void
   reset: () => void
   setPhase: (p: Phase) => void
+  lose: (reason: string) => void
   damagePlayer: (n: number) => void
   /**
    * Draw `cost` units from the cylinder, spilling across chambers.
@@ -79,6 +80,8 @@ export const useGame = create<GameState>((set, get) => ({
   }),
 
   setPhase: (p) => set({ phase: p }),
+
+  lose: (reason) => set((s) => (s.phase === 'playing' ? { phase: 'lost' as Phase, deathReason: reason } : s)),
 
   damagePlayer: (n) => set((s) => {
     if (s.phase !== 'playing') return s
