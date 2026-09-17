@@ -1,0 +1,5 @@
+node_modules
+dist
+shots/report.json
+*.local
+.DS_Store
