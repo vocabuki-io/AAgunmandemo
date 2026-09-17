@@ -49,6 +49,7 @@ const probe = (page) => page.evaluate(() => {
     reloading: s.reloading,
     deathReason: s.deathReason,
     wave: s.wave,
+    director: { phase: a.director.phase, waveIndex: a.director.waveIndex, queued: a.director.queue.length },
     enemiesLeft: s.enemiesLeft,
     score: s.score,
     v: +a.charge.v.toFixed(3),
@@ -404,6 +405,75 @@ const SCENARIOS = [
         ['shooting well leaves real room for missing', e.run.optimalHeadroom >= 3],
       ]
     },
+  },
+  {
+    name: '19-wave-one',
+    minStd: 14,
+    async run(page) {
+      await startGame(page)
+      await waitForState(page, (s) => s.director.phase === 'engaging', 'wave 1 to open')
+      await waitForState(page, (s) => s.enemies >= 3, 'bodies to arrive')
+    },
+    assert: (s) => [
+      ['the run opens on wave 1', s.wave === 0 && s.director.waveIndex === 0],
+      // Wave 1 is 6 swarm + 1 runner; "left" counts the field plus the queue.
+      ['left counts the field plus what is still owed', s.enemiesLeft === s.enemies + s.director.queued],
+      ['the whole wave is accounted for', s.enemies + s.director.queued === 7],
+      ['they trickle in rather than all landing at once', s.director.queued > 0 || s.enemies === 7],
+    ],
+  },
+  {
+    name: '20-wave-clear',
+    minStd: 14,
+    async run(page) {
+      await startGame(page)
+      await page.evaluate(() => { window.__aa.debug.godMode = true; window.__aa.debug.infiniteBattery = true })
+      await waitForState(page, (s) => s.enemies >= 2, 'wave 1 to arrive')
+      // Clear it with real shots through the real hit path. Aim is snapped by
+      // the debug hook because CDP cannot turn a pointer-locked camera.
+      for (let i = 0; i < 40; i++) {
+        const st = await probe(page)
+        if (st.wave >= 1) break
+        if (st.enemies > 0) {
+          await page.evaluate(() => window.__aa.debugFaceNearest())
+          await chargeTo(page, { a: 0.75 })
+          await page.waitForTimeout(500)
+        } else {
+          await page.waitForTimeout(500)
+        }
+      }
+      await waitForState(page, (s) => s.wave >= 1, 'wave 2 to open', 30000)
+    },
+    assert: (s) => [
+      ['the wave was cleared by shooting', s.stats.enemyKills >= 7],
+      ['the director advanced', s.wave === 1 && s.director.waveIndex === 1],
+      // Between-wave resupply: 8 spares to start, +2 on clear.
+      ['spares were resupplied between waves', s.spares === 10],
+    ],
+  },
+  {
+    name: '21-run-cleared',
+    minStd: 14,
+    async run(page) {
+      await startGame(page, { calm: true })
+      // Jump the director to the far side of the last wave. This is a test of
+      // the end-of-run transition, not of fighting 26 bodies at 5fps.
+      await page.evaluate(() => {
+        window.__aa.debug.spawnPaused = false
+        const d = window.__aa.director
+        d.waveIndex = 5
+        d.phase = 'engaging'
+        d.queue = []
+        d.timer = 0
+      })
+      await waitForState(page, (s) => s.phase !== 'playing', 'the run to be declared over')
+    },
+    assert: (s) => [
+      ['clearing the last wave wins the run', s.phase === 'won'],
+      ['the director parks in the cleared state', s.director.phase === 'cleared'],
+      // No resupply after the final wave -- the run is over.
+      ['no pointless resupply after the last wave', s.spares === 8],
+    ],
   },
 ]
 

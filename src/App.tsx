@@ -15,6 +15,7 @@ import { CameraRig } from './scene/CameraRig'
 import { Lighting } from './scene/Lighting'
 import { Player } from './scene/Player'
 import { SkyDome } from './scene/Sky'
+import { Result } from './ui/Result'
 import { Title } from './ui/Title'
 import { useGame } from './store'
 import { attachInput, look, pointer, requestLock } from './input'
@@ -22,6 +23,8 @@ import { camState, charge, debug, playerState, stats } from './game/runtime'
 import { bolts } from './game/shooting'
 import { clearEnemies, enemies, spawnEnemy } from './game/enemies'
 import { analyseEconomy } from './game/economy'
+import { director } from './game/director'
+import { ENEMIES } from './config'
 import type { EnemyKind } from './config'
 
 /**
@@ -36,7 +39,28 @@ import type { EnemyKind } from './config'
  */
 ;(window as unknown as Record<string, unknown>).__aa = {
   camState, charge, playerState, look, useGame, bolts, stats, enemies, analyseEconomy, debug,
-  debugClearEnemies: clearEnemies,
+  debugClearEnemies: clearEnemies, director,
+  /**
+   * Point the view at the nearest body. Writes only to `look`, exactly what
+   * the mouse writes -- it exists because CDP cannot drive a pointer-locked
+   * camera, not because the game needs it.
+   */
+  debugFaceNearest() {
+    let best: (typeof enemies)[number] | null = null
+    let bestD = Infinity
+    for (const e of enemies) {
+      if (!e.alive) continue
+      const d = Math.hypot(e.pos.x - playerState.pos.x, e.pos.z - playerState.pos.z)
+      if (d < bestD) { bestD = d; best = e }
+    }
+    if (!best) return false
+    const dx = best.pos.x - playerState.pos.x
+    const dz = best.pos.z - playerState.pos.z
+    look.yaw = Math.atan2(-dx, -dz)
+    const dy = best.pos.y + ENEMIES[best.kind].height * 0.5 - (playerState.pos.y + 0.4)
+    look.pitch = Math.atan2(dy, Math.hypot(dx, dz))
+    return true
+  },
   debugSpawnAhead(kind: EnemyKind, dist: number, sideways = 0) {
     const fx = -Math.sin(look.yaw)
     const fz = -Math.cos(look.yaw)
@@ -50,13 +74,14 @@ import type { EnemyKind } from './config'
 
 function Stage() {
   const phase = useGame((s) => s.phase)
+  const runId = useGame((s) => s.runId)
   return (
     <Suspense fallback={null}>
       <SkyDome />
       <Lighting />
       <Physics gravity={GRAVITY} timeStep="vary" paused={phase !== 'playing'}>
         <Arena />
-        <Player />
+        <Player key={runId} />
         <CameraRig />
         <GameSystems />
         <Enemies />
@@ -100,6 +125,7 @@ export default function App() {
       {phase === 'playing' && <Crosshair />}
       {phase !== 'title' && <Hud />}
       {phase === 'title' && <Title />}
+      {(phase === 'won' || phase === 'lost') && <Result />}
     </div>
   )
 }

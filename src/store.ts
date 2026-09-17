@@ -9,6 +9,8 @@ let logId = 0
 
 export interface GameState {
   phase: Phase
+  /** Bumped on every new run so the scene can remount what needs remounting. */
+  runId: number
   hp: number
   /** Charge remaining in each chamber, 0..BATTERY.unitsPerCell. */
   chambers: number[]
@@ -27,6 +29,8 @@ export interface GameState {
   reset: () => void
   setPhase: (p: Phase) => void
   lose: (reason: string) => void
+  win: () => void
+  grantSpares: (n: number) => void
   damagePlayer: (n: number) => void
   /**
    * Draw `cost` units from the cylinder, spilling across chambers.
@@ -46,6 +50,7 @@ const freshChambers = () => Array.from({ length: BATTERY.chambers }, () => BATTE
 
 export const useGame = create<GameState>((set, get) => ({
   phase: 'title',
+  runId: 0,
   hp: PLAYER.maxHp,
   chambers: freshChambers(),
   spares: BATTERY.startingSpares,
@@ -61,7 +66,7 @@ export const useGame = create<GameState>((set, get) => ({
 
   start: () => {
     get().reset()
-    set({ phase: 'playing' })
+    set({ phase: 'playing', runId: get().runId + 1 })
   },
 
   reset: () => set({
@@ -82,6 +87,10 @@ export const useGame = create<GameState>((set, get) => ({
   setPhase: (p) => set({ phase: p }),
 
   lose: (reason) => set((s) => (s.phase === 'playing' ? { phase: 'lost' as Phase, deathReason: reason } : s)),
+
+  win: () => set((s) => (s.phase === 'playing' ? { phase: 'won' as Phase } : s)),
+
+  grantSpares: (n) => set((s) => ({ spares: s.spares + n })),
 
   damagePlayer: (n) => set((s) => {
     if (s.phase !== 'playing') return s

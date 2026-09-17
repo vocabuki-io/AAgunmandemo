@@ -1,16 +1,17 @@
 import { useFrame } from '@react-three/fiber'
 import { useRapier } from '@react-three/rapier'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { Color, Vector3 } from 'three'
-import { BATTERY, ENEMIES, SHOT, SPAWN } from '../config'
+import { BATTERY, ENEMIES, SHOT, WAVES } from '../config'
 import { keys, mouse } from '../input'
-import { camState, charge, clampDt, damp, debug, playerState, stats } from '../game/runtime'
+import { camState, charge, clampDt, damp, debug, playerState, resetRuntime, stats } from '../game/runtime'
 import { bolts, clearBolts, computeShot, spawnBolt, type Bolt, type ShotSpec } from '../game/shooting'
 import { PLAYER } from '../config'
-import { spawnArc, spawnFlash, spawnRing, spawnSparks, updateEffects } from '../game/effects'
+import { clearEffects, spawnArc, spawnFlash, spawnRing, spawnSparks, updateEffects } from '../game/effects'
 import {
-  aliveCount, enemies, enemyCenter, killEnemy, spawnEnemy, updateEnemies, type Enemy,
+  clearEnemies, enemies, enemyCenter, killEnemy, updateEnemies, type Enemy,
 } from '../game/enemies'
+import { remaining, resetDirector, updateDirector } from '../game/director'
 import { boltColor, AMBER, CYAN, MAGENTA, WHITE_HOT } from '../game/palette'
 import { useGame } from '../store'
 
@@ -86,7 +87,18 @@ function segmentSphere(
 export function GameSystems() {
   const { world, rapier } = useRapier()
   const prevReload = useRef(false)
-  const spawnTimer = useRef(1.5)
+  const runId = useGame((s) => s.runId)
+
+  // A new run starts from a clean world. The player's rigid body is remounted
+  // separately (keyed on runId in App) since Rapier owns its transform.
+  useEffect(() => {
+    if (runId === 0) return
+    resetRuntime()
+    clearBolts()
+    clearEffects()
+    clearEnemies()
+    resetDirector()
+  }, [runId])
 
   useFrame((_, rawDt) => {
     const dt = clampDt(rawDt)
@@ -172,28 +184,32 @@ export function GameSystems() {
     stepBolts(dt)
     if (playing) {
       updateEnemies(dt, onEnemyAttack)
-      runSpawner(dt)
-      const n = aliveCount()
+      if (!debug.spawnPaused) updateDirector(dt, waveEvents)
+      const n = remaining()
       if (n !== useGame.getState().enemiesLeft) useGame.getState().setEnemiesLeft(n)
     }
     updateEffects(dt)
   })
 
-  /**
-   * Placeholder director: keeps a handful of bodies on the sand so the combat
-   * loop is playable. Wave progression replaces this in task 6.
-   */
-  function runSpawner(dt: number) {
-    if (debug.spawnPaused) return
-    spawnTimer.current -= dt
-    if (spawnTimer.current > 0) return
-    spawnTimer.current = SPAWN.interval
-    if (aliveCount() >= 7) return
-    const ang = Math.random() * Math.PI * 2
-    const d = SPAWN.ringMin + Math.random() * (SPAWN.ringMax - SPAWN.ringMin)
-    const roll = Math.random()
-    const kind = roll < 0.55 ? 'swarm' : roll < 0.85 ? 'runner' : 'armored'
-    spawnEnemy(kind, playerState.pos.x + Math.cos(ang) * d, playerState.pos.z + Math.sin(ang) * d)
+  const waveEvents = {
+    onWaveStart(index: number) {
+      const g = useGame.getState()
+      g.setWave(index)
+      g.pushLog(`WAVE ${index + 1} — ${WAVES[index].label}`, 'a')
+    },
+    onWaveCleared(index: number) {
+      const g = useGame.getState()
+      if (index >= WAVES.length - 1) return
+      g.grantSpares(BATTERY.waveRefill)
+      g.pushLog(`WAVE CLEAR — +${BATTERY.waveRefill} CELLS`, 'v')
+      spawnRing(playerState.pos, 7, CYAN, 0.9)
+      spawnSparks(playerState.pos, 24, 7, CYAN, { spread: 1.2, up: 1.1, life: 1.1, size: 0.09 })
+    },
+    onRunCleared() {
+      const g = useGame.getState()
+      g.pushLog('ALL WAVES DOWN', 'v')
+      g.win()
+    },
   }
 
   function fire(g: ReturnType<typeof useGame.getState>) {
