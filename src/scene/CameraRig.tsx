@@ -4,7 +4,7 @@ import { useRef } from 'react'
 import { PerspectiveCamera, Vector3 } from 'three'
 import { CAMERA } from '../config'
 import { consumeLook, look, pointer } from '../input'
-import { camState, charge, damp, playerState } from '../game/runtime'
+import { camState, charge, clampDt, damp, playerState } from '../game/runtime'
 import { useGame } from '../store'
 
 const target = new Vector3()
@@ -23,7 +23,7 @@ export function CameraRig() {
   const dist = useRef(CAMERA.offset[2])
 
   useFrame((_, rawDt) => {
-    const dt = Math.min(rawDt, 1 / 30)
+    const dt = clampDt(rawDt)
     if (pointer.locked) consumeLook()
 
     const z = charge.vSmooth

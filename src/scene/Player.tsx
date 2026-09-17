@@ -4,7 +4,7 @@ import { CapsuleCollider, RigidBody, useRapier, type RapierRigidBody } from '@re
 import { Group } from 'three'
 import { PLAYER } from '../config'
 import { keys, look } from '../input'
-import { charge, playerState } from '../game/runtime'
+import { charge, clampDt, playerState } from '../game/runtime'
 import { useGame } from '../store'
 import { Gunman } from './Gunman'
 
@@ -16,7 +16,7 @@ export function Player() {
   useFrame((_, rawDt) => {
     const rb = body.current
     if (!rb) return
-    const dt = Math.min(rawDt, 1 / 30)
+    const dt = clampDt(rawDt)
     const phase = useGame.getState().phase
     const t = rb.translation()
     playerState.pos.set(t.x, t.y, t.z)

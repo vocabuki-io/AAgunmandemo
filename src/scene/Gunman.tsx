@@ -2,7 +2,7 @@ import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Group, Object3D } from 'three'
 import { look } from '../input'
-import { charge, damp, playerState } from '../game/runtime'
+import { charge, clampDt, damp, playerState } from '../game/runtime'
 
 const SAND = '#8a7043'
 const DARK = '#332921'
@@ -21,7 +21,7 @@ export function Gunman() {
   const recoil = useRef(0)
 
   useFrame((_, rawDt) => {
-    const dt = Math.min(rawDt, 1 / 30)
+    const dt = clampDt(rawDt)
 
     if (charge.firedPulse > 0) recoil.current = 1
     recoil.current = damp(recoil.current, 0, 11, dt)

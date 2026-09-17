@@ -47,6 +47,36 @@ export const charge = {
   dryPulse: 0,
 }
 
+/**
+ * Cumulative event counters. These exist for verification: asserting "a bolt
+ * is on screen right now" is a race against the frame rate, whereas "one bolt
+ * was spawned and one bolt resolved" is the actual invariant and holds at any
+ * frame rate. Cheap enough to leave in the shipped build.
+ */
+export const stats = {
+  boltsSpawned: 0,
+  worldImpacts: 0,
+  boltsExpired: 0,
+  enemyHits: 0,
+  enemyKills: 0,
+  arcHits: 0,
+  playerHits: 0,
+  dryFires: 0,
+  reloads: 0,
+}
+
+export function resetStats() {
+  stats.boltsSpawned = 0
+  stats.worldImpacts = 0
+  stats.boltsExpired = 0
+  stats.enemyHits = 0
+  stats.enemyKills = 0
+  stats.arcHits = 0
+  stats.playerHits = 0
+  stats.dryFires = 0
+  stats.reloads = 0
+}
+
 export function resetRuntime() {
   playerState.pos.set(0, 2, 0)
   playerState.vel.set(0, 0, 0)
@@ -67,7 +97,25 @@ export function resetRuntime() {
   charge.dryPulse = 0
   camState.shake = 0
   camState.fovKick = 0
+  resetStats()
 }
+
+/**
+ * Longest frame we will credit to gameplay timers.
+ *
+ * This was 1/30 and that was a bug: clamping at 30fps means every machine
+ * running slower than 30fps charges, cools down and ages effects in slow
+ * motion, without any visible sign that it is happening. Measured at 6.9fps
+ * under SwiftShader, a 1.35s charge took 5.9s. The clamp only exists to
+ * survive a genuine stall (tab switch, GC pause), so it belongs far out at
+ * 0.2s; below 5fps the game slows down, which is the honest trade.
+ *
+ * Nothing here tunnels at a long step: bolts sweep their whole step with a
+ * ray, and enemies move by distance, not by impulse.
+ */
+export const MAX_DT = 0.2
+
+export const clampDt = (raw: number) => Math.min(raw, MAX_DT)
 
 /** Frame-rate independent exponential smoothing. */
 export const damp = (current: number, target: number, lambda: number, dt: number) =>

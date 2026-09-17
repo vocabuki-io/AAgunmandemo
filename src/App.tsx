@@ -4,6 +4,11 @@ import { Physics } from '@react-three/rapier'
 import { ACESFilmicToneMapping } from 'three'
 import { CAMERA, GRAVITY } from './config'
 import { Arena } from './scene/Arena'
+import { Bolts } from './scene/Bolts'
+import { ChargeAura } from './scene/ChargeAura'
+import { Effects } from './scene/Effects'
+import { GameSystems } from './scene/GameSystems'
+import { Crosshair } from './ui/Crosshair'
 import { CameraRig } from './scene/CameraRig'
 import { Lighting } from './scene/Lighting'
 import { Player } from './scene/Player'
@@ -11,10 +16,13 @@ import { SkyDome } from './scene/Sky'
 import { Title } from './ui/Title'
 import { useGame } from './store'
 import { attachInput, look, pointer, requestLock } from './input'
-import { camState, charge, playerState } from './game/runtime'
+import { camState, charge, playerState, stats } from './game/runtime'
+import { bolts } from './game/shooting'
 
 // Debug probe used by scripts/verify.mjs and by hand in the console.
-;(window as unknown as Record<string, unknown>).__aa = { camState, charge, playerState, look, useGame }
+;(window as unknown as Record<string, unknown>).__aa = {
+  camState, charge, playerState, look, useGame, bolts, stats,
+}
 
 function Stage() {
   const phase = useGame((s) => s.phase)
@@ -26,6 +34,10 @@ function Stage() {
         <Arena />
         <Player />
         <CameraRig />
+        <GameSystems />
+        <Bolts />
+        <ChargeAura />
+        <Effects />
       </Physics>
     </Suspense>
   )
@@ -60,6 +72,7 @@ export default function App() {
       >
         <Stage />
       </Canvas>
+      {phase === 'playing' && <Crosshair />}
       {phase === 'title' && <Title />}
     </div>
   )
