@@ -98,9 +98,13 @@ export const BATTERY = {
   unitsPerCell: 100,
   /** Chambers in the cylinder. */
   chambers: 6,
-  startingSpares: 18,
-  /** Spares granted between waves. */
-  waveRefill: 8,
+  startingSpares: 8,
+  /**
+   * Spares granted between waves. Deliberately about one well-played wave's
+   * worth: play well and you roughly break even, play sloppily and the
+   * reserve drains. See analyseRun() in game/economy.ts.
+   */
+  waveRefill: 2,
   reloadTime: 1.15,
 }
 

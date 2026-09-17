@@ -18,9 +18,10 @@ import { SkyDome } from './scene/Sky'
 import { Title } from './ui/Title'
 import { useGame } from './store'
 import { attachInput, look, pointer, requestLock } from './input'
-import { camState, charge, playerState, stats } from './game/runtime'
+import { camState, charge, debug, playerState, stats } from './game/runtime'
 import { bolts } from './game/shooting'
-import { enemies, spawnEnemy } from './game/enemies'
+import { clearEnemies, enemies, spawnEnemy } from './game/enemies'
+import { analyseEconomy } from './game/economy'
 import type { EnemyKind } from './config'
 
 /**
@@ -34,7 +35,8 @@ import type { EnemyKind } from './config'
  * around game logic.
  */
 ;(window as unknown as Record<string, unknown>).__aa = {
-  camState, charge, playerState, look, useGame, bolts, stats, enemies,
+  camState, charge, playerState, look, useGame, bolts, stats, enemies, analyseEconomy, debug,
+  debugClearEnemies: clearEnemies,
   debugSpawnAhead(kind: EnemyKind, dist: number, sideways = 0) {
     const fx = -Math.sin(look.yaw)
     const fz = -Math.cos(look.yaw)

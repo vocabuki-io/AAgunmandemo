@@ -48,6 +48,16 @@ export const charge = {
 }
 
 /**
+ * Developer switches. Bound to the leva panel for tuning, and used by verify
+ * to get a quiet arena when a scenario is about the gun rather than the fight.
+ */
+export const debug = {
+  spawnPaused: false,
+  godMode: false,
+  infiniteBattery: false,
+}
+
+/**
  * Cumulative event counters. These exist for verification: asserting "a bolt
  * is on screen right now" is a race against the frame rate, whereas "one bolt
  * was spawned and one bolt resolved" is the actual invariant and holds at any

@@ -4,7 +4,7 @@ import { useRef } from 'react'
 import { Color, Vector3 } from 'three'
 import { BATTERY, ENEMIES, SHOT, SPAWN } from '../config'
 import { keys, mouse } from '../input'
-import { camState, charge, clampDt, damp, playerState, stats } from '../game/runtime'
+import { camState, charge, clampDt, damp, debug, playerState, stats } from '../game/runtime'
 import { bolts, clearBolts, computeShot, spawnBolt, type Bolt, type ShotSpec } from '../game/shooting'
 import { PLAYER } from '../config'
 import { spawnArc, spawnFlash, spawnRing, spawnSparks, updateEffects } from '../game/effects'
@@ -184,18 +184,21 @@ export function GameSystems() {
    * loop is playable. Wave progression replaces this in task 6.
    */
   function runSpawner(dt: number) {
+    if (debug.spawnPaused) return
     spawnTimer.current -= dt
     if (spawnTimer.current > 0) return
     spawnTimer.current = SPAWN.interval
-    if (aliveCount() >= 6) return
+    if (aliveCount() >= 7) return
     const ang = Math.random() * Math.PI * 2
     const d = SPAWN.ringMin + Math.random() * (SPAWN.ringMax - SPAWN.ringMin)
-    spawnEnemy('swarm', playerState.pos.x + Math.cos(ang) * d, playerState.pos.z + Math.sin(ang) * d)
+    const roll = Math.random()
+    const kind = roll < 0.55 ? 'swarm' : roll < 0.85 ? 'runner' : 'armored'
+    spawnEnemy(kind, playerState.pos.x + Math.cos(ang) * d, playerState.pos.z + Math.sin(ang) * d)
   }
 
   function fire(g: ReturnType<typeof useGame.getState>) {
     const raw = computeShot(charge.v, charge.a)
-    const power = g.drawCharge(raw.cost)
+    const power = debug.infiniteBattery ? 1 : g.drawCharge(raw.cost)
 
     charge.v = 0
     charge.a = 0
@@ -382,7 +385,7 @@ export function GameSystems() {
   }
 
   function onEnemyAttack(e: Enemy, dmg: number) {
-    if (playerState.invuln > 0) return
+    if (playerState.invuln > 0 || debug.godMode) return
     playerState.invuln = PLAYER.iFrames
     playerState.hitFlash = 1
     stats.playerHits++

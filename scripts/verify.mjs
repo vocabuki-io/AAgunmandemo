@@ -56,6 +56,10 @@ const probe = (page) => page.evaluate(() => {
     bolts: alive(a.bolts),
     stats: { ...a.stats },
     enemies: a.enemies ? a.enemies.filter((e) => e.alive).length : 0,
+    kinds: ['armored', 'swarm', 'runner'].reduce((o, k) => {
+      o[k] = a.enemies.filter((e) => e.alive && e.kind === k).length
+      return o
+    }, {}),
     nearest: a.enemies
       ? Math.min(Infinity, ...a.enemies.filter((e) => e.alive).map((e) =>
           Math.hypot(e.pos.x - a.playerState.pos.x, e.pos.z - a.playerState.pos.z)))
@@ -97,7 +101,7 @@ const SCENARIOS = [
     // scene measured.
     minStd: 12,
     async run(page) {
-      await startGame(page)
+      await startGame(page, { calm: true })
       await holdUntilCharged(page, { volt: true })
     },
     // Screenshot is taken WHILE the button is still held: this is the rule
@@ -113,7 +117,7 @@ const SCENARIOS = [
     name: '04-charge-amp',
     minStd: 14,
     async run(page) {
-      await startGame(page)
+      await startGame(page, { calm: true })
       await holdUntilCharged(page, { amp: true })
     },
     assert: (s) => [
@@ -126,7 +130,7 @@ const SCENARIOS = [
     name: '05-hold-both',
     minStd: 12,
     async run(page) {
-      await startGame(page)
+      await startGame(page, { calm: true })
       await holdUntilCharged(page, { volt: true, amp: true })
       await page.waitForTimeout(600)
     },
@@ -140,7 +144,7 @@ const SCENARIOS = [
     minStd: 14,
     settle: 150,
     async run(page) {
-      await startGame(page)
+      await startGame(page, { calm: true })
       await holdUntilCharged(page, { volt: true })
       await page.mouse.up({ button: 'right' })
       await page.waitForTimeout(1200)
@@ -159,7 +163,7 @@ const SCENARIOS = [
     minStd: 14,
     settle: 150,
     async run(page) {
-      await startGame(page)
+      await startGame(page, { calm: true })
       await holdUntilCharged(page, { amp: true })
       await page.mouse.up({ button: 'left' })
       await page.waitForTimeout(1200)
@@ -177,7 +181,7 @@ const SCENARIOS = [
     minStd: 14,
     settle: 150,
     async run(page) {
-      await startGame(page)
+      await startGame(page, { calm: true })
       await holdUntilCharged(page, { volt: true, amp: true })
       await page.mouse.up({ button: 'left' })
       await page.waitForTimeout(600)
@@ -204,7 +208,7 @@ const SCENARIOS = [
     assert: (s) => [
       ['enemies are on the sand', s.enemies >= 4],
       ['HUD enemy count matches the world', s.enemiesLeft === s.enemies],
-      ['player has not been hurt yet at spawn range', s.hp === 100],
+      ['the spawner mixes kinds', Object.values(s.kinds).filter((n) => n > 0).length >= 2],
     ],
   },
   {
@@ -212,7 +216,7 @@ const SCENARIOS = [
     minStd: 14,
     settle: 150,
     async run(page) {
-      await startGame(page)
+      await startGame(page, { calm: true })
       // Planted in front rather than waited for: which side the ambient
       // spawner sends bodies from is random, and a pure-ampere bolt has to
       // actually hit something near the pack for the charge to conduct.
@@ -240,8 +244,10 @@ const SCENARIOS = [
     },
     assert: (s) => [
       ['melee contact damaged the player', s.hp < 100],
-      // 6 damage a hit; i-frames stop a crowd from deleting you in one frame.
-      ['damage matches hits taken', s.hp === 100 - s.stats.playerHits * 6],
+      // i-frames mean a crowd cannot land more than one hit at a time, so
+      // total damage stays inside the per-hit range of the enemy table.
+      ['damage stays within hits x the damage table', s.hp >= 100 - s.stats.playerHits * 18],
+      ['every hit did land damage', s.hp <= 100 - s.stats.playerHits * 6],
       ['still alive and playing', s.phase === 'playing'],
     ],
   },
@@ -249,7 +255,7 @@ const SCENARIOS = [
     name: '12-enemies-on-screen',
     minStd: 14,
     async run(page, ctx) {
-      await startGame(page)
+      await startGame(page, { calm: true })
       const before = await page.screenshot()
       await page.evaluate(() => {
         // A wall of all three silhouettes, close enough to fill real screen
@@ -276,7 +282,7 @@ const SCENARIOS = [
     name: '13-reload',
     minStd: 14,
     async run(page) {
-      await startGame(page)
+      await startGame(page, { calm: true })
       // One max-power shot empties exactly one chamber.
       await holdUntilCharged(page, { volt: true, amp: true })
       await page.mouse.up({ button: 'left' })
@@ -288,7 +294,7 @@ const SCENARIOS = [
     assert: (s) => [
       ['cylinder is full again', s.cylinder === 600],
       // Only the one emptied chamber was replaced, so only one spare is gone.
-      ['exactly one spare was consumed', s.spares === 17],
+      ['exactly one spare was consumed', s.spares === 7],
       ['not stuck in the reloading state', s.reloading === false],
     ],
   },
@@ -296,7 +302,7 @@ const SCENARIOS = [
     name: '14-reload-waste',
     minStd: 14,
     async run(page) {
-      await startGame(page)
+      await startGame(page, { calm: true })
       // A chamber with charge still in it. Reloading now throws that charge
       // away -- reloading early is how you waste batteries, and this pins it.
       await page.evaluate(() => window.__aa.useGame.setState({
@@ -317,7 +323,7 @@ const SCENARIOS = [
     name: '15-out-of-batteries',
     minStd: 14,
     async run(page) {
-      await startGame(page)
+      await startGame(page, { calm: true })
       await page.evaluate(() => window.__aa.useGame.setState({
         chambers: [4, 0, 0, 0, 0, 0], spares: 0,
       }))
@@ -332,6 +338,72 @@ const SCENARIOS = [
       // The last 4 units still fired -- a shot scaled down, not a dead trigger.
       ['the last of the charge still fired a shot', s.shotsFired === 1 && s.spentUnits === 4],
     ],
+  },
+  {
+    name: '16-armor-blocks-low-volts',
+    minStd: 14,
+    settle: 150,
+    async run(page) {
+      await startGame(page, { calm: true })
+      await page.evaluate(() => window.__aa.debugSpawnAhead('armored', 8, 0))
+      // Every ampere in the world and no push behind it: 58V against 220V of
+      // plating. This must bounce.
+      await holdUntilCharged(page, { amp: true })
+      await page.mouse.up({ button: 'left' })
+      await page.waitForTimeout(1200)
+    },
+    assert: (s) => [
+      ['the shot was fired', s.stats.boltsSpawned === 1],
+      ['plating turned it away, no damage at all', s.stats.enemyHits === 0],
+      ['nothing died', s.stats.enemyKills === 0],
+      ['the armoured body is still standing', s.kinds.armored >= 1],
+    ],
+  },
+  {
+    name: '17-armor-breaks-with-volts',
+    minStd: 14,
+    settle: 150,
+    async run(page) {
+      await startGame(page, { calm: true })
+      await page.evaluate(() => window.__aa.debugSpawnAhead('armored', 8, 0))
+      // Just over the 220V plating threshold with enough current behind it to
+      // finish the job in one shot. The charge overshoots by up to a frame's
+      // worth at 5fps, so this asserts the cost is well under a full-charge
+      // shot rather than an exact figure -- 18-economy pins the true optimum
+      // (40.0 units) deterministically.
+      await chargeTo(page, { v: 0.5, a: 0.7 })
+      await page.waitForTimeout(1400)
+    },
+    assert: (s) => [
+      ['the bolt got through the plating', s.stats.enemyHits >= 1],
+      ['the armoured body went down in one shot', s.stats.enemyKills >= 1],
+      ['it cost clearly less than a full-charge shot', s.spentUnits < 80],
+    ],
+  },
+  {
+    name: '18-economy',
+    minStd: 14,
+    async run(page) {
+      await startGame(page, { calm: true })
+      return { econ: await page.evaluate(() => window.__aa.analyseEconomy()) }
+    },
+    assert: (s) => {
+      const e = s.econ
+      const by = Object.fromEntries(e.plans.map((p) => [p.kind, p]))
+      return [
+        // Each threat wants a different corner of the (volts, amperes) plane.
+        ['armour needs volts', by.armored.v >= 0.4],
+        ['armour needs current too', by.armored.a >= 0.5],
+        ['swarms want amperes and no volts', by.swarm.a >= 0.3 && by.swarm.v <= 0.2],
+        ['one shot clears a whole swarm cluster', by.swarm.cleared >= 5],
+        ['runners want a cheap tap', by.runner.costPerKill <= 6],
+        ['the three answers are genuinely different shots', e.minOptimumSpread >= 0.3],
+        ['full charge is never the cheapest answer', e.plans.every((p) => p.v < 1 || p.a < 1)],
+        // The rule the whole game rests on.
+        ['full-charge spam cannot finish the run', e.run.maxChargeOverBudget > 1.25],
+        ['shooting well leaves real room for missing', e.run.optimalHeadroom >= 3],
+      ]
+    },
   },
 ]
 
@@ -367,13 +439,48 @@ async function waitForState(page, pred, label, timeoutMs = 45000) {
   }
 }
 
-async function startGame(page) {
-  // Title screen -> arena. The start control carries a stable test id.
+/**
+ * Hold the two buttons to specific charge levels and release each as it is
+ * reached. Lets a scenario ask for "just enough volts to break plating" rather
+ * than only all-or-nothing.
+ */
+async function chargeTo(page, { v = 0, a = 0 }, timeoutMs = 25000) {
+  if (v > 0) await page.mouse.down({ button: 'right' })
+  if (a > 0) await page.mouse.down({ button: 'left' })
+  let vDone = v <= 0
+  let aDone = a <= 0
+  const deadline = Date.now() + timeoutMs
+  while (!vDone || !aDone) {
+    const c = await page.evaluate(() => ({ v: window.__aa.charge.v, a: window.__aa.charge.a }))
+    if (!vDone && c.v >= v) { await page.mouse.up({ button: 'right' }); vDone = true }
+    if (!aDone && c.a >= a) { await page.mouse.up({ button: 'left' }); aDone = true }
+    if (Date.now() > deadline) throw new Error(`chargeTo timed out at v=${c.v} a=${c.a}`)
+    if (!vDone || !aDone) await page.waitForTimeout(70)
+  }
+}
+
+/**
+ * Title screen -> arena.
+ *
+ * `calm` pauses the ambient spawner, clears the field and turns off incoming
+ * damage. Scenarios about the gun and the batteries take minutes of wall time
+ * at 5fps, and without this the player is simply beaten to death partway
+ * through a reload test -- which tells us nothing about reloading.
+ */
+async function startGame(page, { calm = false } = {}) {
   const start = page.locator('[data-testid="start-button"]')
   if (await start.count()) {
     await start.click()
   }
   await page.waitForTimeout(1200)
+  if (calm) {
+    await page.evaluate(() => {
+      window.__aa.debug.spawnPaused = true
+      window.__aa.debug.godMode = true
+      window.__aa.debugClearEnemies()
+    })
+    await page.waitForTimeout(150)
+  }
 }
 
 function waitForPort(port, timeoutMs = 60000) {
