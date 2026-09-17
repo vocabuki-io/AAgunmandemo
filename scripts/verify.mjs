@@ -208,8 +208,9 @@ const SCENARIOS = [
     },
     assert: (s) => [
       ['enemies are on the sand', s.enemies >= 4],
-      ['HUD enemy count matches the world', s.enemiesLeft === s.enemies],
-      ['the spawner mixes kinds', Object.values(s.kinds).filter((n) => n > 0).length >= 2],
+      ['left counts the field plus the queue', s.enemiesLeft === s.enemies + s.director.queued],
+      // Wave 1 is the teaching wave: swarm and one runner, no plating yet.
+      ['wave 1 sends no armour', s.kinds.armored === 0],
     ],
   },
   {
@@ -218,21 +219,28 @@ const SCENARIOS = [
     settle: 150,
     async run(page) {
       await startGame(page, { calm: true })
-      // Planted in front rather than waited for: which side the ambient
-      // spawner sends bodies from is random, and a pure-ampere bolt has to
-      // actually hit something near the pack for the charge to conduct.
+      // Planted tight and frozen, then aimed at. At 3fps a 1.15s charge is
+      // 3.5s of wall time, in which a 4.3 m/s swarm covers 15 metres and ends
+      // up standing on the player -- this scenario is about the arc, not a
+      // footrace. Aim is snapped by the debug hook because CDP cannot turn a
+      // pointer-locked camera.
       await page.evaluate(() => {
-        for (let i = 0; i < 4; i++) window.__aa.debugSpawnAhead('swarm', 6 + i * 0.6, (i - 1.5) * 1.1)
+        window.__aa.debug.freezeEnemies = true
+        const spots = [[7, 0], [7.6, 0.9], [7.6, -0.9], [8.3, 0.5], [8.3, -0.5]]
+        for (const [d, x] of spots) window.__aa.debugSpawnAhead('swarm', d, x)
       })
+      await page.evaluate(() => window.__aa.debugFaceNearest())
       await holdUntilCharged(page, { amp: true })
       await page.mouse.up({ button: 'left' })
-      await page.waitForTimeout(1000)
+      await page.waitForTimeout(1200)
     },
     assert: (s) => [
       ['the bolt hit a body', s.stats.enemyHits >= 1],
-      ['the charge conducted to the rest of the pack', s.stats.arcHits >= 2],
-      // One 14.5-unit shot clears a cluster. This is why swarms want amperes.
-      ['one ampere shot killed the whole cluster', s.stats.enemyKills >= 4],
+      ['the charge conducted to the rest of the pack', s.stats.arcHits >= 3],
+      // One 14.5-unit shot clears a five-body pack. This is the whole reason
+      // swarms want amperes: 2.9 units a kill against 100 for full charge.
+      ['one ampere shot cleared the pack', s.stats.enemyKills >= 5],
+      ['it cost one ampere shot, not a full cell', s.spentUnits < 16],
       ['score went up', s.score > 0],
     ],
   },
@@ -275,8 +283,9 @@ const SCENARIOS = [
     },
     assert: (s) => [
       ['all three kinds spawned in front of the camera', s.enemies >= 7],
-      // A renderer that draws nothing cannot fake a changed frame.
-      ['enemies visibly changed the frame', s.diff > 3],
+      // A renderer that draws nothing scores ~0 here, so this stays a real
+      // gate even though bloom and the adaptive upscale soften the delta.
+      ['enemies visibly changed the frame', s.diff > 1.8],
     ],
   },
   {
@@ -346,7 +355,10 @@ const SCENARIOS = [
     settle: 150,
     async run(page) {
       await startGame(page, { calm: true })
-      await page.evaluate(() => window.__aa.debugSpawnAhead('armored', 8, 0))
+      await page.evaluate(() => {
+        window.__aa.debug.freezeEnemies = true
+        window.__aa.debugSpawnAhead('armored', 8, 0)
+      })
       // Every ampere in the world and no push behind it: 58V against 220V of
       // plating. This must bounce.
       await holdUntilCharged(page, { amp: true })
@@ -366,7 +378,10 @@ const SCENARIOS = [
     settle: 150,
     async run(page) {
       await startGame(page, { calm: true })
-      await page.evaluate(() => window.__aa.debugSpawnAhead('armored', 8, 0))
+      await page.evaluate(() => {
+        window.__aa.debug.freezeEnemies = true
+        window.__aa.debugSpawnAhead('armored', 8, 0)
+      })
       // Just over the 220V plating threshold with enough current behind it to
       // finish the job in one shot. The charge overshoots by up to a frame's
       // worth at 5fps, so this asserts the cost is well under a full-charge

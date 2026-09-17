@@ -38,10 +38,10 @@ export const CAMERA = {
   /** FOV at full volt charge. The zoom IS the volt gauge -- there is no bar. */
   zoomFov: 26,
   /** Height of the camera pivot above the player's feet. */
-  eyeY: 1.45,
+  eyeY: 1.32,
   /** Over-the-shoulder offset in camera-local space (x right, y up, z back). */
-  offset: [0.85, 1.5, 4.6] as [number, number, number],
-  zoomOffset: [0.55, 1.2, 2.5] as [number, number, number],
+  offset: [0.92, 1.78, 5.5] as [number, number, number],
+  zoomOffset: [0.62, 1.42, 3.1] as [number, number, number],
   pitchMin: -1.15,
   pitchMax: 0.95,
   sensitivity: 0.0022,
@@ -144,7 +144,7 @@ export const ENEMIES: Record<EnemyKind, {
   runner: {
     hp: 22, speed: 7.4, radius: 0.5, height: 1.7, damage: 11,
     attackRange: 1.7, attackInterval: 1.0, armorVolts: 0, arcTaken: 1.0,
-    color: '#4e5460', accent: '#ffd23f', score: 50,
+    color: '#68707e', accent: '#ffd23f', score: 50,
   },
 }
 

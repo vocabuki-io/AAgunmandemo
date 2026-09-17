@@ -1,10 +1,12 @@
 import { useFrame } from '@react-three/fiber'
 import { useRapier } from '@react-three/rapier'
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { Color, Vector3 } from 'three'
 import { BATTERY, ENEMIES, SHOT, WAVES } from '../config'
-import { keys, mouse } from '../input'
-import { camState, charge, clampDt, damp, debug, playerState, resetRuntime, stats } from '../game/runtime'
+import { consumePress, mouse } from '../input'
+import {
+  camState, charge, clampDt, damp, debug, feel, hitStop, playerState, resetRuntime, stats,
+} from '../game/runtime'
 import { bolts, clearBolts, computeShot, spawnBolt, type Bolt, type ShotSpec } from '../game/shooting'
 import { PLAYER } from '../config'
 import { clearEffects, spawnArc, spawnFlash, spawnRing, spawnSparks, updateEffects } from '../game/effects'
@@ -86,7 +88,6 @@ function segmentSphere(
  */
 export function GameSystems() {
   const { world, rapier } = useRapier()
-  const prevReload = useRef(false)
   const runId = useGame((s) => s.runId)
 
   // A new run starts from a clean world. The player's rigid body is remounted
@@ -101,7 +102,14 @@ export function GameSystems() {
   }, [runId])
 
   useFrame((_, rawDt) => {
-    const dt = clampDt(rawDt)
+    const real = clampDt(rawDt)
+    // Hit stop runs on real time so it always lasts the same wall-clock
+    // moment, while everything else runs on the scaled clock.
+    let dt = real
+    if (feel.stopTimer > 0) {
+      feel.stopTimer -= real
+      dt = real * feel.stopScale
+    }
     const g = useGame.getState()
     const playing = g.phase === 'playing'
 
@@ -110,12 +118,11 @@ export function GameSystems() {
     charge.cooldown = Math.max(0, charge.cooldown - dt)
 
     // --- reload -------------------------------------------------------
-    const rDown = keys.has('KeyR')
-    if (playing && rDown && !prevReload.current) {
+    const wantsReload = consumePress('KeyR')
+    if (playing && wantsReload) {
       g.beginReload()
       if (useGame.getState().reloading) charge.reloadTimer = BATTERY.reloadTime
     }
-    prevReload.current = rDown
 
     // Out of juice in the gun AND in your pockets: the run is over. Checked
     // before charging so you never stand there holding a dead trigger.
@@ -183,7 +190,7 @@ export function GameSystems() {
 
     stepBolts(dt)
     if (playing) {
-      updateEnemies(dt, onEnemyAttack)
+      if (!debug.freezeEnemies) updateEnemies(dt, onEnemyAttack)
       if (!debug.spawnPaused) updateDirector(dt, waveEvents)
       const n = remaining()
       if (n !== useGame.getState().enemiesLeft) useGame.getState().setEnemiesLeft(n)
@@ -280,6 +287,7 @@ export function GameSystems() {
       killEnemy(e)
       g.addScore(cfg.score)
       camState.shake += 0.05
+      hitStop(cfg.hp > 50 ? 0.075 : 0.035, 0.22)
     }
   }
 

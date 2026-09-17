@@ -1,6 +1,8 @@
 import { useFrame } from '@react-three/fiber'
 import { useMemo, useRef } from 'react'
-import { AdditiveBlending, BufferAttribute, BufferGeometry, LineSegments, Mesh, MeshBasicMaterial } from 'three'
+import {
+  AdditiveBlending, BufferAttribute, BufferGeometry, LineSegments, Mesh, MeshBasicMaterial, PointLight,
+} from 'three'
 import { charge, clampDt, playerState } from '../game/runtime'
 import { makeGlowDisc } from './glow'
 
@@ -16,6 +18,7 @@ export function ChargeAura() {
   const lines = useRef<LineSegments>(null)
   const disc = useRef<Mesh>(null)
   const muzzleGlow = useRef<Mesh>(null)
+  const muzzleLight = useRef<PointLight>(null)
   const timer = useRef(0)
 
   const geo = useMemo(() => {
@@ -88,6 +91,16 @@ export function ChargeAura() {
         m.color.setRGB(k * 0.35, k * 1.1, k * 1.35)
       }
     }
+
+    // One real light at the muzzle, kept mounted at zero intensity so the
+    // light count never changes and materials never recompile mid-fight.
+    const ml = muzzleLight.current
+    if (ml) {
+      ml.position.copy(playerState.muzzle)
+      const k = charge.firedPulse * 9 + v * 0.9 + a * 0.6
+      ml.intensity = k * 26
+      ml.color.setRGB(0.35 + a * 0.65, 0.85 - a * 0.35, 1.0 - a * 0.45)
+    }
   })
 
   return (
@@ -104,6 +117,8 @@ export function ChargeAura() {
         <primitive object={discGeo} attach="geometry" />
         <meshBasicMaterial vertexColors toneMapped={false} blending={AdditiveBlending} depthWrite={false} />
       </mesh>
+
+      <pointLight ref={muzzleLight} intensity={0} distance={26} decay={2} />
 
       <mesh ref={muzzleGlow} frustumCulled={false}>
         <sphereGeometry args={[1, 8, 6]} />

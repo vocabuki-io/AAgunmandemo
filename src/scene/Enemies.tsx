@@ -14,13 +14,13 @@ const WHITE = new Color('#ffffff')
 const KINDS: EnemyKind[] = ['armored', 'swarm', 'runner']
 
 /** Where the glowing core sits, as a fraction of body height. */
-const CORE_Y: Record<EnemyKind, number> = { armored: 0.62, swarm: 0.5, runner: 0.74 }
+const CORE_Y: Record<EnemyKind, number> = { armored: 0.62, swarm: 0.5, runner: 0.6 }
 
 /** A wide visor slit for armour, a point for the dart, a heart for the shard. */
 const CORE_SCALE: Record<EnemyKind, [number, number, number]> = {
-  armored: [0.62, 0.13, 0.22],
+  armored: [0.52, 0.085, 0.16],
   swarm: [0.2, 0.2, 0.2],
-  runner: [0.1, 0.3, 0.1],
+  runner: [0.13, 0.36, 0.13],
 }
 
 /** Silhouettes are the tell: a drum, a shard, a dart. */

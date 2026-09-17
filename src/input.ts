@@ -6,6 +6,23 @@ import { CAMERA } from './config'
 
 export const keys = new Set<string>()
 
+/**
+ * Keys that went down since the last frame read them.
+ *
+ * Polling `keys` once a frame silently drops any press shorter than a frame:
+ * at 3fps a quick tap of R is added and removed entirely between two frames
+ * and the reload never happens. Latching the event and consuming it once
+ * means a press is never lost however slow the frame is.
+ */
+const pressedOnce = new Set<string>()
+
+/** True once per physical press. */
+export function consumePress(code: string) {
+  if (!pressedOnce.has(code)) return false
+  pressedOnce.delete(code)
+  return true
+}
+
 export const mouse = {
   /** Right button -- volts. */
   right: false,
@@ -47,6 +64,7 @@ export function attachInput(canvas: HTMLElement) {
   attached = true
 
   window.addEventListener('keydown', (e) => {
+    if (!e.repeat) pressedOnce.add(e.code)
     keys.add(e.code)
     // Space scrolls, and F-keys are not ours to intercept.
     if (e.code === 'Space') e.preventDefault()
@@ -54,6 +72,7 @@ export function attachInput(canvas: HTMLElement) {
   window.addEventListener('keyup', (e) => keys.delete(e.code))
   window.addEventListener('blur', () => {
     keys.clear()
+    pressedOnce.clear()
     mouse.left = false
     mouse.right = false
   })
@@ -116,6 +135,7 @@ export function consumeLook() {
 
 export function resetInput() {
   keys.clear()
+  pressedOnce.clear()
   mouse.left = false
   mouse.right = false
   mouse.dx = 0

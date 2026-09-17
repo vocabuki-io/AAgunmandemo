@@ -48,11 +48,25 @@ export const charge = {
 }
 
 /**
+ * Game feel. A kill briefly slows the clock, which makes a bolt landing feel
+ * like it connected with something instead of a counter ticking down.
+ */
+export const feel = { stopTimer: 0, stopScale: 1 }
+
+export function hitStop(duration: number, scale: number) {
+  if (duration > feel.stopTimer) {
+    feel.stopTimer = duration
+    feel.stopScale = scale
+  }
+}
+
+/**
  * Developer switches. Bound to the leva panel for tuning, and used by verify
  * to get a quiet arena when a scenario is about the gun rather than the fight.
  */
 export const debug = {
   spawnPaused: false,
+  freezeEnemies: false,
   godMode: false,
   infiniteBattery: false,
 }
@@ -107,6 +121,8 @@ export function resetRuntime() {
   charge.dryPulse = 0
   camState.shake = 0
   camState.fovKick = 0
+  feel.stopTimer = 0
+  feel.stopScale = 1
   resetStats()
 }
 

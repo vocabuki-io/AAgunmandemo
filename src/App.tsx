@@ -1,9 +1,11 @@
-import { Suspense, useEffect, useRef } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
+import { PerformanceMonitor } from '@react-three/drei'
 import { Physics } from '@react-three/rapier'
 import { ACESFilmicToneMapping } from 'three'
 import { CAMERA, GRAVITY } from './config'
 import { Arena } from './scene/Arena'
+import { Backdrop } from './scene/Backdrop'
 import { Bolts } from './scene/Bolts'
 import { ChargeAura } from './scene/ChargeAura'
 import { Effects } from './scene/Effects'
@@ -14,6 +16,7 @@ import { Hud } from './ui/Hud'
 import { CameraRig } from './scene/CameraRig'
 import { Lighting } from './scene/Lighting'
 import { Player } from './scene/Player'
+import { Post } from './scene/Post'
 import { SkyDome } from './scene/Sky'
 import { Result } from './ui/Result'
 import { Title } from './ui/Title'
@@ -78,6 +81,7 @@ function Stage() {
   return (
     <Suspense fallback={null}>
       <SkyDome />
+      <Backdrop />
       <Lighting />
       <Physics gravity={GRAVITY} timeStep="vary" paused={phase !== 'playing'}>
         <Arena />
@@ -89,6 +93,7 @@ function Stage() {
         <ChargeAura />
         <Effects />
       </Physics>
+      <Post />
     </Suspense>
   )
 }
@@ -96,6 +101,13 @@ function Stage() {
 export default function App() {
   const host = useRef<HTMLDivElement>(null)
   const phase = useGame((s) => s.phase)
+  // Adaptive resolution. The bloom pass is fill-rate bound, so on a machine
+  // that cannot keep up we render fewer pixels and upscale rather than drop
+  // the effect that the whole art direction rests on. Measured under software
+  // rendering this is the difference between 2fps and a playable frame.
+  // Starts below 1 and climbs on a machine that can afford it, rather than
+  // starting high and stuttering while it works out that it cannot.
+  const [dpr, setDpr] = useState(0.8)
 
   useEffect(() => {
     const canvas = host.current?.querySelector('canvas')
@@ -112,14 +124,19 @@ export default function App() {
     <div ref={host} style={{ position: 'absolute', inset: 0 }}>
       <Canvas
         shadows
-        dpr={[1, 1.75]}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
         camera={{ fov: CAMERA.baseFov, near: 0.08, far: 420, position: [0, 4, 11] }}
+        dpr={dpr}
         onCreated={({ gl }) => {
           gl.toneMapping = ACESFilmicToneMapping
           gl.toneMappingExposure = 1.05
         }}
       >
+        <PerformanceMonitor
+          bounds={() => [30, 58]}
+          flipflops={6}
+          onChange={({ factor }) => setDpr(Math.round((0.5 + factor * 1.0) * 20) / 20)}
+        />
         <Stage />
       </Canvas>
       {phase === 'playing' && <Crosshair />}
