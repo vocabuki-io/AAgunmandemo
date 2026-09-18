@@ -72,6 +72,12 @@ const probe = (page) => page.evaluate(() => {
           Math.hypot(e.pos.x - a.playerState.pos.x, e.pos.z - a.playerState.pos.z)))
       : Infinity,
     playerY: +a.playerState.pos.y.toFixed(2),
+    px: a.playerState.pos.x,
+    pz: a.playerState.pos.z,
+    // Horizontal facing, so movement can be checked against where the camera
+    // looks rather than against world axes.
+    camX: a.camState.dir.x,
+    camZ: a.camState.dir.z,
   }
 })
 
@@ -583,6 +589,29 @@ const SCENARIOS = [
       ['backtick closes it again', s.hiddenAgain === false],
     ],
   },
+  {
+    name: '25-movement-directions',
+    minStd: 14,
+    async run(page) {
+      await startGame(page, { calm: true })
+      const w = await holdUntilMoved(page, 'w')
+      const s2 = await holdUntilMoved(page, 's')
+      const d = await holdUntilMoved(page, 'd')
+      const a = await holdUntilMoved(page, 'a')
+      return { mW: w, mS: s2, mD: d, mA: a }
+    },
+    // The harness had no coverage of this at all, which is how a build went
+    // out with W driving backwards and S forwards. Everything is measured
+    // against where the camera looks, not against world axes, so it holds at
+    // any heading.
+    assert: (s) => [
+      ['W actually moves the player', s.mW.dist >= 1],
+      ['W moves toward where the camera looks', s.mW.alongForward > 0.85],
+      ['S moves away from where the camera looks', s.mS.alongForward < -0.85],
+      ['D strafes right', s.mD.alongRight > 0.85],
+      ['A strafes left', s.mA.alongRight < -0.85],
+    ],
+  },
 ]
 
 /**
@@ -656,6 +685,40 @@ async function chargeTo(page, { v = 0, a = 0 }, timeoutMs = 120000) {
  * at 5fps, and without this the player is simply beaten to death partway
  * through a reload test -- which tells us nothing about reloading.
  */
+/**
+ * Hold a movement key until the player has actually travelled, then report the
+ * displacement. Distance-based rather than timed: how far a key press moves
+ * you is game time, and the wall-clock cost of that varies with the renderer.
+ */
+async function holdUntilMoved(page, key, minDist = 1.5, timeoutMs = 90000) {
+  const from = await probe(page)
+  await page.keyboard.down(key)
+  const deadline = Date.now() + timeoutMs
+  let to = from
+  for (;;) {
+    to = await probe(page)
+    const moved = Math.hypot(to.px - from.px, to.pz - from.pz)
+    if (moved >= minDist || Date.now() > deadline) break
+    await page.waitForTimeout(100)
+  }
+  await page.keyboard.up(key)
+  await page.waitForTimeout(400)
+  const dx = to.px - from.px
+  const dz = to.pz - from.pz
+  const dist = Math.hypot(dx, dz)
+  // Project the movement onto the camera's forward and right axes.
+  const fx = from.camX
+  const fz = from.camZ
+  const flen = Math.hypot(fx, fz) || 1
+  const f = [fx / flen, fz / flen]
+  const r = [-f[1], f[0]]
+  return {
+    dist,
+    alongForward: dist > 0 ? (dx * f[0] + dz * f[1]) / dist : 0,
+    alongRight: dist > 0 ? (dx * r[0] + dz * r[1]) / dist : 0,
+  }
+}
+
 async function startGame(page, { calm = false } = {}) {
   const start = page.locator('[data-testid="start-button"]')
   if (await start.count()) {
@@ -744,6 +807,17 @@ async function meanAbsDiff(page, a, b) {
   }, [a.toString('base64'), b.toString('base64')])
 }
 
+/** VERIFY_ONLY=25,10 runs just the matching scenarios, for quick iteration. */
+function selectScenarios() {
+  const only = (process.env.VERIFY_ONLY ?? '').trim()
+  if (!only) return SCENARIOS
+  const wanted = only.split(',').map((x) => x.trim()).filter(Boolean)
+  const picked = SCENARIOS.filter((s) => wanted.some((w) => s.name.includes(w)))
+  if (picked.length === 0) throw new Error(`VERIFY_ONLY=${only} matched no scenarios`)
+  console.log(`[verify] VERIFY_ONLY=${only} -> ${picked.map((s) => s.name).join(', ')}`)
+  return picked
+}
+
 async function main() {
   if (!existsSync(resolve(ROOT, 'dist/index.html'))) {
     console.error('[verify] dist/index.html missing -- run `npm run build` first.')
@@ -778,7 +852,7 @@ async function main() {
       ],
     })
 
-    for (const sc of SCENARIOS) {
+    for (const sc of selectScenarios()) {
       const ctx = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1 })
       const page = await ctx.newPage()
       const errors = []
