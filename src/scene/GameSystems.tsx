@@ -1,0 +1,446 @@
+import { useFrame } from '@react-three/fiber'
+import { useRapier } from '@react-three/rapier'
+import { useEffect } from 'react'
+import { Color, Vector3 } from 'three'
+import { BATTERY, ENEMIES, SHOT, WAVES } from '../config'
+import { consumePress, mouse } from '../input'
+import {
+  camState, charge, clampDt, damp, debug, feel, hitStop, playerState, resetRuntime, stats,
+} from '../game/runtime'
+import { bolts, clearBolts, computeShot, spawnBolt, type Bolt, type ShotSpec } from '../game/shooting'
+import { PLAYER } from '../config'
+import { clearEffects, spawnArc, spawnFlash, spawnRing, spawnSparks, updateEffects } from '../game/effects'
+import {
+  clearEnemies, enemies, enemyCenter, killEnemy, updateEnemies, type Enemy,
+} from '../game/enemies'
+import { remaining, resetDirector, updateDirector } from '../game/director'
+import { boltColor, AMBER, CYAN, MAGENTA, WHITE_HOT } from '../game/palette'
+import { useGame } from '../store'
+import {
+  audio, setMuted, sfxArc, sfxDryFire, sfxImpact, sfxKill, sfxPlayerHit, sfxReloadDone,
+  sfxReloadStart, sfxRicochet, sfxShot, sfxWaveClear, sfxWaveStart, suspendAudio, updateAudio,
+} from '../game/audio'
+
+const aimPoint = new Vector3()
+const eCenter = new Vector3()
+const eCenter2 = new Vector3()
+const boltDir = new Vector3()
+const impactPoint = new Vector3()
+const tmpColor = new Color()
+
+/** When the cylinder cannot pay in full, the shot shrinks instead of failing. */
+function scaleSpec(s: ShotSpec, power: number): ShotSpec {
+  const k = Math.sqrt(power)
+  return {
+    volts: s.volts * k,
+    amps: s.amps * k,
+    speed: s.speed * (0.5 + 0.5 * k),
+    range: s.range * k,
+    pierce: Math.floor(s.pierce * k),
+    damage: s.damage * k,
+    arcRadius: s.arcRadius * k,
+    arcDamage: s.arcDamage * k,
+    stun: s.stun * k,
+    cost: s.cost * power,
+    hue: s.hue,
+  }
+}
+
+function impact(point: Vector3, b: Bolt) {
+  const s = b.spec
+  boltColor(tmpColor, s.hue)
+  spawnFlash(point, 0.5 + s.amps * 0.11 + s.volts * 0.0016, WHITE_HOT, 0.11)
+  spawnFlash(point, 0.9 + s.amps * 0.2, tmpColor, 0.2)
+  spawnSparks(point, Math.round(5 + s.amps * 1.8), 4 + s.volts * 0.016, tmpColor, {
+    spread: 1, up: 0.5, life: 0.45, size: 0.075,
+  })
+  if (s.arcRadius > 0.5) {
+    spawnRing(point, s.arcRadius, MAGENTA, 0.36)
+    spawnSparks(point, Math.round(6 + s.amps * 2.4), s.arcRadius * 2.6, MAGENTA, {
+      spread: 1.3, up: 0.18, life: 0.4, size: 0.06, gravity: 6,
+    })
+  }
+  if (s.volts > 200) spawnRing(point, 0.5 + s.volts * 0.004, CYAN, 0.22, false)
+}
+
+/**
+ * First point along a ray segment that enters a sphere, or null.
+ * Used for bolt-vs-enemy: enemies are not colliders, so this is the whole
+ * hit test. Sweeping the segment means a fast bolt cannot skip a body.
+ */
+function segmentSphere(
+  ox: number, oy: number, oz: number,
+  dx: number, dy: number, dz: number,
+  len: number, cx: number, cy: number, cz: number, r: number,
+): number | null {
+  const mx = ox - cx
+  const my = oy - cy
+  const mz = oz - cz
+  const b = mx * dx + my * dy + mz * dz
+  const c = mx * mx + my * my + mz * mz - r * r
+  if (c > 0 && b > 0) return null
+  const disc = b * b - c
+  if (disc < 0) return null
+  const t = Math.max(0, -b - Math.sqrt(disc))
+  return t <= len ? t : null
+}
+
+/**
+ * The single ordered game step. Everything that must happen in a known order
+ * (input -> fire -> bolts -> effects) lives here rather than being scattered
+ * across component-local useFrame callbacks.
+ */
+export function GameSystems() {
+  const { world, rapier } = useRapier()
+  const runId = useGame((s) => s.runId)
+
+  // A new run starts from a clean world. The player's rigid body is remounted
+  // separately (keyed on runId in App) since Rapier owns its transform.
+  useEffect(() => {
+    if (runId === 0) return
+    resetRuntime()
+    clearBolts()
+    clearEffects()
+    clearEnemies()
+    resetDirector()
+  }, [runId])
+
+  useFrame((_, rawDt) => {
+    const real = clampDt(rawDt)
+    // Hit stop runs on real time so it always lasts the same wall-clock
+    // moment, while everything else runs on the scaled clock.
+    let dt = real
+    if (feel.stopTimer > 0) {
+      feel.stopTimer -= real
+      dt = real * feel.stopScale
+    }
+    const g = useGame.getState()
+    const playing = g.phase === 'playing' && !g.paused
+
+    charge.firedPulse = Math.max(0, charge.firedPulse - dt)
+    charge.dryPulse = Math.max(0, charge.dryPulse - dt)
+    charge.cooldown = Math.max(0, charge.cooldown - dt)
+
+    // --- reload -------------------------------------------------------
+    const wantsReload = consumePress('KeyR')
+    if (playing && wantsReload) {
+      g.beginReload()
+      if (useGame.getState().reloading) {
+        charge.reloadTimer = BATTERY.reloadTime
+        sfxReloadStart()
+      }
+    }
+
+    // Out of juice in the gun AND in your pockets: the run is over. Checked
+    // before charging so you never stand there holding a dead trigger.
+    if (playing && !g.reloading && g.spares <= 0 && g.chambers.every((c) => c <= 0)) {
+      g.lose('OUT OF BATTERIES')
+    }
+
+    if (g.reloading) {
+      charge.reloadTimer -= dt
+      charge.v = 0
+      charge.a = 0
+      charge.armed = false
+      if (charge.reloadTimer <= 0) {
+        const before = useGame.getState().spares
+        g.finishReload()
+        stats.reloads++
+        sfxReloadDone()
+        const used = before - useGame.getState().spares
+        useGame.getState().pushLog(`RELOAD — ${used} CELL${used === 1 ? '' : 'S'}`, 'v')
+        spawnSparks(playerState.muzzle, 7, 3.2, CYAN, { spread: 1, up: 0.6, life: 0.4, size: 0.06 })
+      }
+    } else if (playing) {
+      // --- charge state machine --------------------------------------
+      const vHeld = mouse.right
+      const aHeld = mouse.left
+      const ready = charge.cooldown <= 0
+
+      if (ready) {
+        if (vHeld) charge.v = Math.min(1, charge.v + dt / SHOT.voltChargeTime)
+        if (aHeld) charge.a = Math.min(1, charge.a + dt / SHOT.ampChargeTime)
+        if (vHeld || aHeld) charge.armed = true
+
+        // Fire on the frame where NEITHER button is down any more. While
+        // either is held the gun never discharges -- release order is free.
+        if (charge.armed && !vHeld && !aHeld) fire(g)
+      }
+      charge.vHeld = vHeld
+      charge.aHeld = aHeld
+    } else {
+      charge.v = 0
+      charge.a = 0
+      charge.armed = false
+      charge.vHeld = false
+      charge.aHeld = false
+    }
+
+    charge.vSmooth = damp(charge.vSmooth, charge.v, 10, dt)
+    charge.aSmooth = damp(charge.aSmooth, charge.a, 10, dt)
+
+    if (consumePress('KeyM')) setMuted(!audio.muted)
+    if (playing) updateAudio(charge.v, charge.a)
+    else suspendAudio()
+
+    // Amperes crackle around you while they build.
+    if (charge.a > 0.05 && Math.random() < charge.a * dt * 42) {
+      const r = 0.6 + charge.a * 0.9
+      const th = Math.random() * Math.PI * 2
+      impactPoint.set(
+        playerState.pos.x + Math.cos(th) * r,
+        playerState.pos.y - 0.4 + Math.random() * 1.6,
+        playerState.pos.z + Math.sin(th) * r,
+      )
+      spawnSparks(impactPoint, 1, 2 + charge.a * 5, MAGENTA, {
+        spread: 1, up: 0.3, life: 0.25, size: 0.055, gravity: 4,
+      })
+    }
+
+    playerState.invuln = Math.max(0, playerState.invuln - dt)
+    playerState.hitFlash = damp(playerState.hitFlash, 0, 4, dt)
+
+    stepBolts(dt)
+    if (playing) {
+      if (!debug.freezeEnemies) updateEnemies(dt, onEnemyAttack)
+      if (!debug.spawnPaused) updateDirector(dt, waveEvents)
+      const n = remaining()
+      if (n !== useGame.getState().enemiesLeft) useGame.getState().setEnemiesLeft(n)
+    }
+    updateEffects(dt)
+  })
+
+  const waveEvents = {
+    onWaveStart(index: number) {
+      const g = useGame.getState()
+      g.setWave(index)
+      g.pushLog(`WAVE ${index + 1} — ${WAVES[index].label}`, 'a')
+      sfxWaveStart()
+    },
+    onWaveCleared(index: number) {
+      const g = useGame.getState()
+      if (index >= WAVES.length - 1) return
+      g.grantSpares(BATTERY.waveRefill)
+      g.pushLog(`WAVE CLEAR — +${BATTERY.waveRefill} CELLS`, 'v')
+      sfxWaveClear()
+      spawnRing(playerState.pos, 7, CYAN, 0.9)
+      spawnSparks(playerState.pos, 24, 7, CYAN, { spread: 1.2, up: 1.1, life: 1.1, size: 0.09 })
+    },
+    onRunCleared() {
+      const g = useGame.getState()
+      g.pushLog('ALL WAVES DOWN', 'v')
+      g.win()
+    },
+  }
+
+  function fire(g: ReturnType<typeof useGame.getState>) {
+    const raw = computeShot(charge.v, charge.a)
+    const power = debug.infiniteBattery ? 1 : g.drawCharge(raw.cost)
+
+    charge.v = 0
+    charge.a = 0
+    charge.armed = false
+    charge.cooldown = SHOT.cooldown
+
+    if (power <= 0) {
+      // Dry click: the cylinder is flat.
+      charge.dryPulse = 0.25
+      stats.dryFires++
+      sfxDryFire()
+      spawnSparks(playerState.muzzle, 3, 1.4, '#886644', { spread: 0.6, up: 0.3, life: 0.25, size: 0.04 })
+      useGame.getState().pushLog('CYLINDER DEAD — PRESS R', 'warn')
+      return
+    }
+
+    const spec = power < 0.999 ? scaleSpec(raw, power) : raw
+
+    // Resolve aim against the crosshair, not the muzzle: cast from the camera
+    // and point the bolt at whatever the reticle is actually over.
+    const probe = spec.range + 24
+    const hit = world.castRay(
+      new rapier.Ray(
+        { x: camState.pos.x, y: camState.pos.y, z: camState.pos.z },
+        { x: camState.dir.x, y: camState.dir.y, z: camState.dir.z },
+      ),
+      probe, true, rapier.QueryFilterFlags.EXCLUDE_DYNAMIC,
+    )
+    const dist = Math.max(hit ? hit.timeOfImpact : probe, 6)
+    aimPoint.copy(camState.pos).addScaledVector(camState.dir, dist)
+
+    const muzzle = playerState.muzzle.lengthSq() > 0.001 ? playerState.muzzle : playerState.pos
+    boltDir.copy(aimPoint).sub(muzzle).normalize()
+    spawnBolt(muzzle, boltDir, spec, power)
+
+    boltColor(tmpColor, spec.hue)
+    spawnFlash(muzzle, 0.5 + spec.amps * 0.07, WHITE_HOT, 0.09)
+    spawnFlash(muzzle, 0.85 + spec.amps * 0.14, tmpColor, 0.16)
+    spawnSparks(muzzle, 5, 3 + spec.volts * 0.01, tmpColor, {
+      spread: 0.55, up: 0.25, life: 0.3, size: 0.05,
+    })
+
+    sfxShot(spec)
+    charge.firedPulse = 0.12
+    camState.shake += 0.05 + spec.cost * 0.0035
+    camState.fovKick += 2.5 + spec.cost * 0.06
+  }
+
+  function hurt(e: Enemy, dmg: number, stun: number) {
+    const g = useGame.getState()
+    e.hp -= dmg
+    e.hitFlash = 1
+    e.stun = Math.max(e.stun, stun)
+    stats.enemyHits++
+    if (e.hp <= 0) {
+      const cfg = ENEMIES[e.kind]
+      enemyCenter(e, eCenter)
+      spawnFlash(eCenter, 1.1 + cfg.radius, WHITE_HOT, 0.12)
+      spawnFlash(eCenter, 1.9 + cfg.radius * 1.6, cfg.accent, 0.26)
+      spawnRing(eCenter, cfg.radius * 2.6, cfg.accent, 0.34, false)
+      spawnSparks(eCenter, 16, 7 + cfg.radius * 5, cfg.accent, {
+        spread: 1.2, up: 0.7, life: 0.7, size: 0.1,
+      })
+      spawnSparks(eCenter, 8, 4, '#ffd9a0', { spread: 1, up: 0.5, life: 0.55, size: 0.07 })
+      killEnemy(e)
+      sfxKill(e.kind)
+      g.addScore(cfg.score)
+      camState.shake += 0.05
+      hitStop(cfg.hp > 50 ? 0.075 : 0.035, 0.22)
+    }
+  }
+
+  /** Amperes dumped into a body conduct outward to everything nearby. */
+  function arcBlast(center: Vector3, b: Bolt, exceptId: number) {
+    const s = b.spec
+    if (s.arcRadius < 0.5) return
+    spawnRing(center, s.arcRadius, MAGENTA, 0.4)
+    for (const e of enemies) {
+      if (!e.alive || e.id === exceptId) continue
+      enemyCenter(e, eCenter2)
+      const d = eCenter2.distanceTo(center)
+      if (d > s.arcRadius) continue
+      const cfg = ENEMIES[e.kind]
+      // Linear falloff, never below 35% at the rim.
+      const falloff = 1 - (d / s.arcRadius) * 0.65
+      spawnArc(center, eCenter2, MAGENTA, 0.22)
+      sfxArc()
+      stats.arcHits++
+      hurt(e, s.arcDamage * falloff * cfg.arcTaken, s.stun * cfg.arcTaken)
+    }
+  }
+
+  function stepBolts(dt: number) {
+    for (const b of bolts) {
+      if (!b.alive) continue
+      b.age += dt
+      const step = b.spec.speed * dt
+      b.prev.copy(b.pos)
+
+      const hit = world.castRay(
+        new rapier.Ray(
+          { x: b.pos.x, y: b.pos.y, z: b.pos.z },
+          { x: b.dir.x, y: b.dir.y, z: b.dir.z },
+        ),
+        step + SHOT.bulletRadius, true, rapier.QueryFilterFlags.EXCLUDE_DYNAMIC,
+      )
+      const worldT = hit ? hit.timeOfImpact : Infinity
+
+      // Collect every body the segment enters this frame, nearest first, so a
+      // piercing bolt consumes them in the order it actually reaches them.
+      const cands: { t: number; e: Enemy }[] = []
+      for (const e of enemies) {
+        if (!e.alive || b.hits.includes(e.id)) continue
+        const cfg = ENEMIES[e.kind]
+        enemyCenter(e, eCenter)
+        const t = segmentSphere(
+          b.pos.x, b.pos.y, b.pos.z, b.dir.x, b.dir.y, b.dir.z,
+          step + SHOT.bulletRadius,
+          eCenter.x, eCenter.y, eCenter.z, cfg.radius + SHOT.bulletRadius,
+        )
+        if (t !== null && t < worldT) cands.push({ t, e })
+      }
+      cands.sort((p, q) => p.t - q.t)
+
+      let stopped = false
+      for (const { t, e } of cands) {
+        if (!e.alive) continue
+        const cfg = ENEMIES[e.kind]
+        impactPoint.copy(b.pos).addScaledVector(b.dir, t)
+        b.hits.push(e.id)
+
+        if (b.spec.volts < cfg.armorVolts) {
+          // Not enough push to break the plating: the bolt simply bounces.
+          spawnFlash(impactPoint, 0.8, AMBER, 0.13)
+          spawnSparks(impactPoint, 10, 7, AMBER, { spread: 1.2, up: 0.6, life: 0.4, size: 0.07 })
+          e.hitFlash = Math.max(e.hitFlash, 0.45)
+          sfxRicochet()
+          stopped = true
+          break
+        }
+
+        boltColor(tmpColor, b.spec.hue)
+        spawnFlash(impactPoint, 0.6 + b.spec.amps * 0.1, WHITE_HOT, 0.1)
+        spawnSparks(impactPoint, Math.round(6 + b.spec.amps * 1.6), 5 + b.spec.volts * 0.012, tmpColor, {
+          spread: 1, up: 0.5, life: 0.45, size: 0.08,
+        })
+        hurt(e, b.spec.damage, b.spec.stun * 0.5)
+        // The charge dumps into the FIRST body it enters; piercing does not
+        // let one bolt detonate an arc per target.
+        if (!b.arcSpent) {
+          b.arcSpent = true
+          arcBlast(impactPoint, b, e.id)
+        }
+
+        if (b.pierceLeft > 0) {
+          b.pierceLeft--
+        } else {
+          stopped = true
+          break
+        }
+      }
+
+      if (stopped) {
+        b.alive = false
+        continue
+      }
+
+      if (hit) {
+        impactPoint.copy(b.pos).addScaledVector(b.dir, Math.max(0, hit.timeOfImpact - 0.05))
+        impact(impactPoint, b)
+        sfxImpact(b.spec.volts, b.spec.amps)
+        if (!b.arcSpent) {
+          b.arcSpent = true
+          arcBlast(impactPoint, b, -1)
+        }
+        b.alive = false
+        stats.worldImpacts++
+        continue
+      }
+
+      b.pos.addScaledVector(b.dir, step)
+      b.traveled += step
+      if (b.traveled >= b.spec.range) {
+        // Out of push: the bolt simply runs out of volts and dies.
+        boltColor(tmpColor, b.spec.hue)
+        spawnSparks(b.pos, 3, 1.6, tmpColor, { spread: 1, up: 0.2, life: 0.3, size: 0.05, gravity: 5 })
+        b.alive = false
+        stats.boltsExpired++
+      }
+    }
+  }
+
+  function onEnemyAttack(e: Enemy, dmg: number) {
+    if (playerState.invuln > 0 || debug.godMode) return
+    playerState.invuln = PLAYER.iFrames
+    playerState.hitFlash = 1
+    stats.playerHits++
+    sfxPlayerHit()
+    camState.shake += 0.3
+    enemyCenter(e, eCenter)
+    spawnSparks(eCenter, 8, 5, ENEMIES[e.kind].accent, { spread: 1, up: 0.5, life: 0.35, size: 0.07 })
+    useGame.getState().damagePlayer(dmg)
+  }
+
+  return null
+}
+
+export { clearBolts }
