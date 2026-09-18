@@ -48,3 +48,31 @@ jobs:
 
       - id: deployment
         uses: actions/deploy-pages@v4
+
+      # Fetch the page we just published and check it is actually the built
+      # one. Pages set to "deploy from a branch" happily serves the repository
+      # root instead, which means the SOURCE index.html -- it references
+      # /src/main.tsx, that 404s, and the site is simply black with a green
+      # deploy. This turns that into a failed run that says so.
+      - name: Smoke-test the published page
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -euo pipefail
+          echo "checking $PAGE_URL"
+          for attempt in 1 2 3 4 5 6; do
+            body=$(curl -fsSL --max-time 30 "$PAGE_URL" || true)
+            if printf '%s' "$body" | grep -q 'assets/index-.*\.js'; then
+              echo "ok: the published page references the built bundle"
+              exit 0
+            fi
+            echo "attempt $attempt: not the built page yet, waiting..."
+            sleep 10
+          done
+          echo "::error::The published page is not the built output."
+          if printf '%s' "$body" | grep -q '/src/main.tsx'; then
+            echo "::error::It references /src/main.tsx, i.e. the unbuilt source index.html."
+            echo "::error::Settings -> Pages -> Source is set to a branch; it must be 'GitHub Actions'."
+          fi
+          printf '%s' "$body" | head -c 2000
+          exit 1
