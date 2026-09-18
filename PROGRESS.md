@@ -528,3 +528,26 @@ CI では同じ900msがほとんどゲーム内時間にならず、敵は遠い
 凍結は「位置を止める」ことであって「実体を停止する」ことではないので、
 判定を `updateEnemies` の内側、タイマー更新の後ろに移した。
 出現演出とヒットフラッシュは動き続け、操舵と攻撃だけが止まる。
+
+---
+
+## 公開 (09/18)
+
+`.github/workflows/deploy.yml` で main への push ごとに GitHub Pages へデプロイする。
+
+- `vite.config.ts` の `base: './'`（相対パス）のおかげで、プロジェクトサイトの
+  `/AAgunmandemo/` というサブパスでもそのまま動く。
+  **これは推測ではなく実測で確認した**: `dist` をサブディレクトリに置いて配信し、
+  ブラウザで開いて「`playing` に入る・ポインタロックが取れる・コンソールエラー0件」
+  を確認している（`scripts/dev/subpath.mjs`）。
+- `configure-pages` の `enablement: true` で、初回に設定画面を触らなくても
+  Pages が有効になる。
+- `concurrency: pages` は `cancel-in-progress: false`。
+  公開サイトは1つしかないので、途中で打ち切るよりキューに積む方が安全。
+
+### リポジトリの公開設定について
+
+GitHub Pages は **public リポジトリなら無料プランで使える**が、
+private だと Pro / Team / Enterprise が要る。このリポジトリは private だったので、
+公開範囲の変更という**持ち主の判断が要る事項**として確認を挟んだ。
+結論は「public にする」。公開設定の変更自体は私からは行っていない。

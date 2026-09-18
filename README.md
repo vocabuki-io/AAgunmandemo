@@ -2,6 +2,10 @@
 
 [![CI](https://github.com/vocabuki-io/AAgunmandemo/actions/workflows/ci.yml/badge.svg)](https://github.com/vocabuki-io/AAgunmandemo/actions/workflows/ci.yml)
 
+**▶ 遊ぶ: https://vocabuki-io.github.io/AAgunmandemo/**
+
+マウスの視点操作にポインタロックを使うので、iframe の中ではなく直接開くこと。
+
 単三電池（AA）をリボルバーに装填して撃つ、ブラウザで動く TPS アリーナシューター。
 弾は電気。**ボルト(V)** と **アンペア(A)** を溜めて配合し、状況に応じて撃ち分ける。
 
