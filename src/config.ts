@@ -87,6 +87,25 @@ export const SHOT = {
   arcDamagePerAmp: 5,
   stunPerA: 0.9,
 
+  /**
+   * Per-kind identity. Which buttons you actually held decides what leaves the
+   * barrel, so the three shots are three different weapons rather than points
+   * on one slider:
+   *   volts only -> a lance that always punches through and flies flat
+   *   amps only  -> a slow ball that bursts on contact
+   *   both       -> a beam that does both, for the price of both
+   */
+  /** A volt lance pierces this many bodies even at the lightest tap. */
+  voltPierceBase: 3,
+  /** ...plus this many more at full charge. */
+  voltPierceGain: 5,
+  /** The ball is meant to be seen coming. */
+  ampSpeedMul: 0.55,
+  /** Bursting is the ball's whole job, so its blast is the widest. */
+  ampBlastMul: 1.35,
+  /** A beam arrives almost immediately. */
+  beamSpeedMul: 1.7,
+  beamPierceBase: 4,
   /** Battery units drawn = V * A / costDivisor. */
   costDivisor: 40,
 

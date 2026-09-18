@@ -66,6 +66,12 @@ export function hitStop(duration: number, scale: number) {
  */
 export const debug = {
   spawnPaused: false,
+  /**
+   * Multiplies the gameplay clock. Exists because a volt lance crosses the
+   * arena in under 50ms, which no screenshot can catch -- at 0.15 the same
+   * frames are inspectable. Gameplay is unchanged at 1.
+   */
+  timeScale: 1,
   freezeEnemies: false,
   godMode: false,
   infiniteBattery: false,

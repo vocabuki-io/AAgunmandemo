@@ -435,10 +435,18 @@ const SCENARIOS = [
         // Each threat wants a different corner of the (volts, amperes) plane.
         ['armour needs volts', by.armored.v >= 0.4],
         ['armour needs current too', by.armored.a >= 0.5],
-        ['swarms want amperes and no volts', by.swarm.a >= 0.3 && by.swarm.v <= 0.2],
+        // Only armour is worth spending volts on, so only armour is answered
+        // by the beam; the other two are ampere balls of different sizes.
+        ['only armour is worth a beam', by.armored.shot === 'beam'],
+        ['swarms are answered by an ampere ball', by.swarm.shot === 'amp'],
+        ['runners are answered by an ampere ball', by.runner.shot === 'amp'],
+        ['swarms want amperes and no volts', by.swarm.a >= 0.2 && by.swarm.v <= 0.2],
         ['one shot clears a whole swarm cluster', by.swarm.cleared >= 5],
         ['runners want a cheap tap', by.runner.costPerKill <= 6],
-        ['the three answers are genuinely different shots', e.minOptimumSpread >= 0.3],
+        // A swarm blast is a materially longer hold than a runner tap, so the
+        // two ampere answers are still different decisions rather than one.
+        ['a swarm blast costs a real hold beyond a runner tap', by.swarm.a - by.runner.a >= 0.15],
+        ['the answers are not all the same shot', e.minOptimumSpread >= 0.18],
         ['full charge is never the cheapest answer', e.plans.every((p) => p.v < 1 || p.a < 1)],
         // The rule the whole game rests on.
         ['full-charge spam cannot finish the run', e.run.maxChargeOverBudget > 1.25],
@@ -611,6 +619,69 @@ const SCENARIOS = [
       ['D strafes right', s.mD.alongRight > 0.85],
       ['A strafes left', s.mA.alongRight < -0.85],
     ],
+  },
+  {
+    name: '26-shot-kinds',
+    minStd: 14,
+    settle: 150,
+    async run(page) {
+      await startGame(page, { calm: true })
+
+      // The three weapons, straight from the shot maths.
+      const spec = await page.evaluate(() => {
+        const f = window.__aa.computeShot
+        const pick = (s) => ({
+          kind: s.kind, speed: +s.speed.toFixed(1), pierce: s.pierce,
+          blast: +s.arcRadius.toFixed(2),
+        })
+        return {
+          voltTap: pick(f(0.15, 0)),
+          volt: pick(f(1, 0)),
+          amp: pick(f(0, 1)),
+          ampTap: pick(f(0, 0.2)),
+          beam: pick(f(1, 1)),
+        }
+      })
+
+      // ...and the lance actually punching through a column of armour.
+      await page.evaluate(() => {
+        window.__aa.debug.freezeEnemies = true
+        // Kept inside 13m: the innermost girder ring sits at 13-17m and a
+        // pillar in the line of fire stops the lance early, which is the
+        // arena's fault rather than the weapon's.
+        for (const d of [5, 7, 9, 11]) window.__aa.debugSpawnAhead('armored', d, 0)
+      })
+      await waitForState(page, (s) => s.emerged >= 4, 'the column to finish rising')
+      await page.evaluate(() => window.__aa.debugFaceNearest())
+      await holdUntilCharged(page, { volt: true })
+      await page.mouse.up({ button: 'right' })
+      await page.waitForTimeout(1500)
+      return { spec }
+    },
+    assert: (s) => {
+      const k = s.spec
+      return [
+        // Volts: a lance. Always pierces, no blast, faster the longer you hold.
+        ['holding only volts fires a lance', k.volt.kind === 'volt'],
+        ['a lance pierces even at a tap', k.voltTap.pierce >= 3],
+        ['a lance carries no blast', k.volt.blast < 0.1],
+        ['charging volts makes it faster', k.volt.speed > k.voltTap.speed * 1.5],
+        // Amperes: a ball. Slow, no pierce, blast grows with the hold.
+        ['holding only amperes fires a ball', k.amp.kind === 'amp'],
+        ['the ball does not pierce', k.amp.pierce === 0],
+        ['the ball is slower than the lance', k.amp.speed < k.volt.speed * 0.5],
+        ['charging amperes widens the blast', k.amp.blast > k.ampTap.blast * 2],
+        // Both: a beam, faster than the lance and bursting like the ball.
+        ['holding both fires a beam', k.beam.kind === 'beam'],
+        ['the beam outruns the lance', k.beam.speed > k.volt.speed],
+        ['the beam pierces', k.beam.pierce >= 4],
+        ['the beam bursts too', k.beam.blast > 6],
+        // And the lance really does punch through a column, in game.
+        ['one lance, one bolt', s.stats.boltsSpawned === 1],
+        ['it punched through the whole column', s.stats.enemyHits >= 4],
+        ['and it did it by piercing, not by bursting', s.stats.arcHits === 0],
+      ]
+    },
   },
 ]
 

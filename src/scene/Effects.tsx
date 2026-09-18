@@ -4,7 +4,7 @@ import {
   AdditiveBlending, BufferAttribute, BufferGeometry, Color, InstancedMesh,
   LineSegments, Object3D,
 } from 'three'
-import { arcs, flashes, rings, sparks } from '../game/effects'
+import { arcs, blasts, flashes, rings, sparks } from '../game/effects'
 import { makeGlowDisc, makeGlowRing } from './glow'
 
 const ARC_SEGS = 7
@@ -23,6 +23,7 @@ export function Effects() {
   const flashRef = useRef<InstancedMesh>(null)
   const ringRef = useRef<InstancedMesh>(null)
   const arcRef = useRef<LineSegments>(null)
+  const blastRef = useRef<InstancedMesh>(null)
   const camera = useThree((s) => s.camera)
 
   const arcGeo = useMemo(() => {
@@ -37,7 +38,7 @@ export function Effects() {
 
   // Instanced colour buffers only exist once setColorAt has been called.
   useLayoutEffect(() => {
-    for (const m of [sparkRef.current, flashRef.current, ringRef.current]) {
+    for (const m of [sparkRef.current, flashRef.current, ringRef.current, blastRef.current]) {
       if (m) m.setColorAt(0, col.set('#000000'))
     }
   }, [])
@@ -118,6 +119,31 @@ export function Effects() {
       if (r.instanceColor) r.instanceColor.needsUpdate = true
     }
 
+    // Blast shells: expand fast, fade faster. Drawn as a low-poly sphere so the
+    // facets read as a shockwave rather than a soap bubble.
+    const bl = blastRef.current
+    if (bl) {
+      for (let i = 0; i < blasts.length; i++) {
+        const p = blasts[i]
+        if (!p.alive) {
+          dummy.position.set(0, -9999, 0)
+          dummy.scale.setScalar(0)
+        } else {
+          const t = Math.max(0, p.life / p.maxLife)
+          const grow = 1 - t
+          dummy.position.copy(p.pos)
+          dummy.rotation.set(grow * 1.2, grow * 0.8, 0)
+          dummy.scale.setScalar(p.radius * (0.25 + grow * 0.85))
+          col.copy(p.color).multiplyScalar(t * t * 1.5)
+          bl.setColorAt(i, col)
+        }
+        dummy.updateMatrix()
+        bl.setMatrixAt(i, dummy.matrix)
+      }
+      bl.instanceMatrix.needsUpdate = true
+      if (bl.instanceColor) bl.instanceColor.needsUpdate = true
+    }
+
     // Chain lightning: a jagged polyline per arc, shape frozen by its seed so
     // it reads as one discharge fading rather than a flickering scribble.
     const a = arcRef.current
@@ -176,6 +202,11 @@ export function Effects() {
       <instancedMesh ref={ringRef} args={[undefined, undefined, rings.length]} frustumCulled={false}>
         <primitive object={ringGeo} attach="geometry" />
         <meshBasicMaterial vertexColors toneMapped={false} blending={AdditiveBlending} depthWrite={false} />
+      </instancedMesh>
+
+      <instancedMesh ref={blastRef} args={[undefined, undefined, blasts.length]} frustumCulled={false}>
+        <icosahedronGeometry args={[1, 1]} />
+        <meshBasicMaterial toneMapped={false} blending={AdditiveBlending} depthWrite={false} wireframe />
       </instancedMesh>
 
       <lineSegments ref={arcRef} frustumCulled={false}>

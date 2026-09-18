@@ -35,6 +35,16 @@ export type Flash = {
   color: Color
 }
 
+/** An expanding shell of current: what an ampere ball leaves behind. */
+export type Blast = {
+  alive: boolean
+  pos: Vector3
+  life: number
+  maxLife: number
+  radius: number
+  color: Color
+}
+
 /** A visible discharge jumping from an impact to a conducting body. */
 export type Arc = {
   alive: boolean
@@ -67,8 +77,13 @@ export const arcs: Arc[] = mk(40, () => ({
   life: 0, maxLife: 1, color: new Color(), seed: 0,
 }))
 
+export const blasts: Blast[] = mk(16, () => ({
+  alive: false, pos: new Vector3(), life: 0, maxLife: 1, radius: 1, color: new Color(),
+}))
+
 let sparkCursor = 0
 let arcCursor = 0
+let blastCursor = 0
 let ringCursor = 0
 let flashCursor = 0
 
@@ -146,7 +161,23 @@ export function spawnArc(from: Vector3, to: Vector3, color: Color | string, life
   a.color.set(color as string)
 }
 
+export function spawnBlast(pos: Vector3, radius: number, color: Color | string, life = 0.45) {
+  const [b, next] = take(blasts, blastCursor)
+  blastCursor = next
+  b.alive = true
+  b.pos.copy(pos)
+  b.life = life
+  b.maxLife = life
+  b.radius = radius
+  b.color.set(color as string)
+}
+
 export function updateEffects(dt: number) {
+  for (const b of blasts) {
+    if (!b.alive) continue
+    b.life -= dt
+    if (b.life <= 0) b.alive = false
+  }
   for (const a of arcs) {
     if (!a.alive) continue
     a.life -= dt
@@ -178,6 +209,7 @@ export function updateEffects(dt: number) {
 }
 
 export function clearEffects() {
+  for (const b of blasts) b.alive = false
   for (const a of arcs) a.alive = false
   for (const s of sparks) s.alive = false
   for (const r of rings) r.alive = false

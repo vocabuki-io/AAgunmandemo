@@ -9,7 +9,7 @@
  * the build instead of quietly ruining the game.
  */
 import { BATTERY, ENEMIES, WAVES, type EnemyKind } from '../config'
-import { computeShot } from './shooting'
+import { computeShot, type ShotKind } from './shooting'
 
 /** What each kind actually shows up as: armour alone, swarms packed, runners solo. */
 export const THREAT: Record<EnemyKind, { count: number; radius: number }> = {
@@ -20,6 +20,8 @@ export const THREAT: Record<EnemyKind, { count: number; radius: number }> = {
 
 export type Plan = {
   kind: EnemyKind
+  /** Which of the three weapons that answer actually is. */
+  shot: ShotKind
   v: number
   a: number
   volts: number
@@ -54,7 +56,7 @@ export function bestShotFor(kind: EnemyKind, step = 0.02): Plan {
       const cpk = s.cost / n
       if (!best || cpk < best.costPerKill - 1e-9) {
         best = {
-          kind, v: +v.toFixed(3), a: +a.toFixed(3),
+          kind, shot: s.kind, v: +v.toFixed(3), a: +a.toFixed(3),
           volts: +s.volts.toFixed(1), amps: +s.amps.toFixed(2),
           cost: +s.cost.toFixed(2), cleared: n, costPerKill: +cpk.toFixed(2),
         }
