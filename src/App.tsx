@@ -19,6 +19,7 @@ import { Player } from './scene/Player'
 import { Post } from './scene/Post'
 import { SkyDome } from './scene/Sky'
 import { Pause } from './ui/Pause'
+import { ErrorBoundary, FatalPanel, checkWebGL } from './ui/Fatal'
 import { Result } from './ui/Result'
 import { Tuner } from './ui/Tuner'
 import { Title } from './ui/Title'
@@ -103,6 +104,14 @@ function Stage() {
 }
 
 export default function App() {
+  return (
+    <ErrorBoundary>
+      <Game />
+    </ErrorBoundary>
+  )
+}
+
+function Game() {
   const host = useRef<HTMLDivElement>(null)
   const phase = useGame((s) => s.phase)
   const paused = useGame((s) => s.paused)
@@ -113,6 +122,7 @@ export default function App() {
   // Starts below 1 and climbs on a machine that can afford it, rather than
   // starting high and stuttering while it works out that it cannot.
   const [dpr, setDpr] = useState(0.8)
+  const [webgl] = useState(checkWebGL)
 
   useEffect(() => {
     const canvas = host.current?.querySelector('canvas')
@@ -147,6 +157,24 @@ export default function App() {
     const canvas = host.current?.querySelector('canvas')
     useGame.getState().setPaused(false)
     if (canvas) requestLock(canvas)
+  }
+
+  if (!webgl.ok) {
+    return (
+      <FatalPanel
+        title="WEBGL UNAVAILABLE"
+        detail={webgl.reason}
+        hint={
+          <>
+            このゲームは WebGL で描画しています。ブラウザ側で WebGL が無効か、
+            フィンガープリント対策で遮断されています。<br />
+            <b>Brave なら</b>アドレスバーのシールドアイコンから、このサイトの Shields を
+            オフにすると通ることが多いです。<br />
+            設定で WebGL / ハードウェアアクセラレーションが無効になっていないかも確認してください。
+          </>
+        }
+      />
+    )
   }
 
   return (

@@ -7,3 +7,8 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 )
+
+// Tells the boot fallback in index.html that the bundle actually ran.
+const w = window as unknown as { __aaMounted?: boolean }
+w.__aaMounted = true
+document.getElementById('boot')?.remove()
