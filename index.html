@@ -37,6 +37,7 @@
     <script>
       (function () {
         var shown = false
+        var t0 = Date.now()
         function show(title, detail) {
           if (shown) return
           shown = true
@@ -49,17 +50,54 @@
           d.style.display = detail ? 'block' : 'none'
         }
         window.__aaBootShow = show
+
+        // Capture phase matters: a script or stylesheet that fails to load
+        // fires an error event that does NOT bubble, so a plain
+        // addEventListener('error') never sees it -- which is exactly how a
+        // 404 on the bundle showed up as a silent stall with nothing to go on.
         window.addEventListener('error', function (e) {
+          var el = e.target
+          if (el && el !== window && (el.src || el.href)) {
+            show('FAILED TO LOAD', (el.src || el.href) + '\n\nThe browser could not load this file. It may be missing on the server, or blocked by an extension or content blocker.')
+            return
+          }
           show('SCRIPT ERROR', (e.error && e.error.stack) || e.message || String(e))
-        })
+        }, true)
+
         window.addEventListener('unhandledrejection', function (e) {
           var r = e.reason
           show('SCRIPT ERROR', (r && r.stack) || String(r))
         })
+
+        // If nothing mounted, ask the server about the bundle directly and put
+        // the answer on screen: status code, content type, or a network error
+        // if something is blocking it outright.
         setTimeout(function () {
-          if (!window.__aaMounted) {
-            show('STALLED', 'The bundle did not finish starting within 10s. Check the Network and Console tabs of the developer tools.')
+          if (window.__aaMounted || shown) return
+          var el = document.querySelector('script[type="module"]')
+          var src = el && el.src
+          var waited = Math.round((Date.now() - t0) / 1000) + 's'
+          if (!src) {
+            show('STALLED', 'No module script tag found in the page after ' + waited + '.')
+            return
           }
+          fetch(src, { cache: 'no-store' })
+            .then(function (r) {
+              show(
+                r.ok ? 'BUNDLE LOADED BUT DID NOT RUN' : 'BUNDLE HTTP ' + r.status,
+                src +
+                  '\n\nstatus       : ' + r.status + ' ' + r.statusText +
+                  '\ncontent-type : ' + r.headers.get('content-type') +
+                  '\nwaited       : ' + waited +
+                  (r.ok
+                    ? '\n\nThe file is reachable, so it was fetched but never executed. A content blocker or an extension is the usual cause.'
+                    : '\n\nThe file is not being served at this URL.')
+              )
+            })
+            .catch(function (err) {
+              show('BUNDLE UNREACHABLE', src + '\n\n' + err + '\nwaited: ' + waited +
+                '\n\nThe request itself failed, which usually means an extension, content blocker or network policy is blocking it.')
+            })
         }, 10000)
       })()
     </script>
