@@ -9,7 +9,7 @@
 import { Vector3 } from 'three'
 import { ARENA, ENEMIES, PLAYER, type EnemyKind } from '../config'
 import { pillars } from './arenaLayout'
-import { playerState, stats } from './runtime'
+import { debug, playerState, stats } from './runtime'
 
 export type Enemy = {
   id: number
@@ -90,6 +90,11 @@ export function updateEnemies(dt: number, onAttack: (e: Enemy, dmg: number) => v
     e.hitFlash = Math.max(0, e.hitFlash - dt * 3.4)
     e.emerge = Math.min(1, e.emerge + dt * 2.2)
     e.attackCd = Math.max(0, e.attackCd - dt)
+
+    // Held in place, but still animating: freezing is about position, so the
+    // spawn rise and the hit flash keep running. Suspending those too meant a
+    // frozen body never finished emerging at all.
+    if (debug.freezeEnemies) continue
 
     if (e.stun > 0) {
       e.stun -= dt

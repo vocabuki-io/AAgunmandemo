@@ -59,6 +59,10 @@ const probe = (page) => page.evaluate(() => {
     stats: { ...a.stats },
     audio: { ready: a.audio.ready, played: a.audio.played, muted: a.audio.muted },
     enemies: a.enemies ? a.enemies.filter((e) => e.alive).length : 0,
+    // Bodies that have finished rising out of the sand. Spawning scales them
+    // up over 0.45s of GAME time, which is several seconds of wall time on a
+    // slow renderer.
+    emerged: a.enemies.filter((e) => e.alive && e.emerge >= 0.99).length,
     kinds: ['armored', 'swarm', 'runner'].reduce((o, k) => {
       o[k] = a.enemies.filter((e) => e.alive && e.kind === k).length
       return o
@@ -278,24 +282,28 @@ const SCENARIOS = [
       await startGame(page, { calm: true })
       const before = await page.screenshot()
       await page.evaluate(() => {
-        // A wall of all three silhouettes, close enough to fill real screen
-        // area: the point is to prove the renderer draws them.
-        window.__aa.debugSpawnAhead('armored', 6, -3.4)
-        window.__aa.debugSpawnAhead('armored', 6.4, 0)
-        window.__aa.debugSpawnAhead('armored', 6, 3.4)
-        window.__aa.debugSpawnAhead('runner', 4.6, -1.8)
-        window.__aa.debugSpawnAhead('runner', 4.6, 1.8)
-        window.__aa.debugSpawnAhead('swarm', 3.6, -0.9)
-        window.__aa.debugSpawnAhead('swarm', 3.6, 0.9)
+        // Frozen and planted close. Both matter: unfrozen, the bodies walk
+        // toward the player while the harness waits, so how much of the frame
+        // they end up filling depends on how much GAME time passed -- which on
+        // a slow renderer is almost none. Pinning the geometry makes the
+        // measurement depend only on whether they are drawn.
+        window.__aa.debug.freezeEnemies = true
+        const S = window.__aa.debugSpawnAhead
+        S('armored', 4.2, -3.0); S('armored', 4.4, 0); S('armored', 4.2, 3.0)
+        S('armored', 6.2, -1.6); S('armored', 6.2, 1.6)
+        S('runner', 3.0, -1.5); S('runner', 3.0, 1.5)
+        S('swarm', 2.4, -0.6); S('swarm', 2.4, 0.6); S('swarm', 3.0, 0)
       })
-      await page.waitForTimeout(900)
+      await waitForState(page, (s) => s.emerged >= 10, 'the enemies to finish rising')
+      await page.waitForTimeout(250)
       const after = await page.screenshot()
       return { diff: await ctx.meanAbsDiff(page, before, after) }
     },
     assert: (s) => [
-      ['all three kinds spawned in front of the camera', s.enemies >= 7],
-      // A renderer that draws nothing scores ~0 here, so this stays a real
-      // gate even though bloom and the adaptive upscale soften the delta.
+      ['all three kinds spawned in front of the camera', s.enemies >= 10],
+      ['every one of them finished rising', s.emerged >= 10],
+      // A renderer that draws nothing scores ~0 here. Measured 2.88 with this
+      // formation, so the gate keeps real margin without being decorative.
       ['enemies visibly changed the frame', s.diff > 1.8],
     ],
   },

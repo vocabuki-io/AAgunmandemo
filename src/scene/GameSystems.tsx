@@ -202,7 +202,7 @@ export function GameSystems() {
 
     stepBolts(dt)
     if (playing) {
-      if (!debug.freezeEnemies) updateEnemies(dt, onEnemyAttack)
+      updateEnemies(dt, onEnemyAttack)
       if (!debug.spawnPaused) updateDirector(dt, waveEvents)
       const n = remaining()
       if (n !== useGame.getState().enemiesLeft) useGame.getState().setEnemiesLeft(n)
