@@ -9,7 +9,9 @@ import {
 } from '../game/runtime'
 import { bolts, clearBolts, computeShot, spawnBolt, type Bolt, type ShotSpec } from '../game/shooting'
 import { PLAYER } from '../config'
-import { clearEffects, spawnArc, spawnFlash, spawnRing, spawnSparks, updateEffects } from '../game/effects'
+import {
+  clearEffects, spawnArc, spawnBlast, spawnFlash, spawnRing, spawnSparks, updateEffects,
+} from '../game/effects'
 import {
   clearEnemies, enemies, enemyCenter, killEnemy, updateEnemies, type Enemy,
 } from '../game/enemies'
@@ -32,6 +34,7 @@ const tmpColor = new Color()
 function scaleSpec(s: ShotSpec, power: number): ShotSpec {
   const k = Math.sqrt(power)
   return {
+    kind: s.kind,
     volts: s.volts * k,
     amps: s.amps * k,
     speed: s.speed * (0.5 + 0.5 * k),
@@ -46,21 +49,43 @@ function scaleSpec(s: ShotSpec, power: number): ShotSpec {
   }
 }
 
+/**
+ * Each kind lands differently, because each kind IS different: the lance
+ * punches a bright hole and keeps going, the ball bursts, the beam does both
+ * at a scale that should look like it cost a whole cell.
+ */
 function impact(point: Vector3, b: Bolt) {
   const s = b.spec
   boltColor(tmpColor, s.hue)
   spawnFlash(point, 0.5 + s.amps * 0.11 + s.volts * 0.0016, WHITE_HOT, 0.11)
   spawnFlash(point, 0.9 + s.amps * 0.2, tmpColor, 0.2)
-  spawnSparks(point, Math.round(5 + s.amps * 1.8), 4 + s.volts * 0.016, tmpColor, {
-    spread: 1, up: 0.5, life: 0.45, size: 0.075,
-  })
-  if (s.arcRadius > 0.5) {
-    spawnRing(point, s.arcRadius, MAGENTA, 0.36)
-    spawnSparks(point, Math.round(6 + s.amps * 2.4), s.arcRadius * 2.6, MAGENTA, {
-      spread: 1.3, up: 0.18, life: 0.4, size: 0.06, gravity: 6,
+
+  if (s.kind === 'volt') {
+    // A clean puncture: a tight spray back along the entry, no spread.
+    spawnSparks(point, Math.round(6 + s.volts * 0.03), 6 + s.volts * 0.03, CYAN, {
+      spread: 0.45, up: 0.3, life: 0.35, size: 0.07,
+    })
+    spawnRing(point, 0.5 + s.volts * 0.004, CYAN, 0.22, false)
+    return
+  }
+
+  // Ball and beam both burst. The blast radius is what the ampere knob buys.
+  if (s.arcRadius > 0.4) {
+    const r = s.arcRadius
+    spawnBlast(point, r, s.kind === 'beam' ? WHITE_HOT : MAGENTA, 0.42 + r * 0.02)
+    spawnRing(point, r, MAGENTA, 0.4)
+    spawnRing(point, r * 0.6, WHITE_HOT, 0.26)
+    spawnSparks(point, Math.round(10 + s.amps * 3), r * 3.2, MAGENTA, {
+      spread: 1.35, up: 0.35, life: 0.55, size: 0.08, gravity: 7,
+    })
+    camState.shake += Math.min(0.5, r * 0.035)
+  }
+  if (s.kind === 'beam') {
+    spawnRing(point, 1 + s.volts * 0.006, CYAN, 0.28, false)
+    spawnSparks(point, 10, 8 + s.volts * 0.03, CYAN, {
+      spread: 0.6, up: 0.4, life: 0.4, size: 0.08,
     })
   }
-  if (s.volts > 200) spawnRing(point, 0.5 + s.volts * 0.004, CYAN, 0.22, false)
 }
 
 /**
@@ -109,10 +134,10 @@ export function GameSystems() {
     const real = clampDt(rawDt)
     // Hit stop runs on real time so it always lasts the same wall-clock
     // moment, while everything else runs on the scaled clock.
-    let dt = real
+    let dt = real * debug.timeScale
     if (feel.stopTimer > 0) {
       feel.stopTimer -= real
-      dt = real * feel.stopScale
+      dt *= feel.stopScale
     }
     const g = useGame.getState()
     const playing = g.phase === 'playing' && !g.paused

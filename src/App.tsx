@@ -27,7 +27,7 @@ import { useGame } from './store'
 import { attachInput, look, pointer, requestLock } from './input'
 import { audio, sfxLose, sfxWin } from './game/audio'
 import { camState, charge, debug, playerState, stats } from './game/runtime'
-import { bolts } from './game/shooting'
+import { bolts, computeShot } from './game/shooting'
 import { clearEnemies, enemies, spawnEnemy } from './game/enemies'
 import { analyseEconomy } from './game/economy'
 import { director } from './game/director'
@@ -46,6 +46,7 @@ import type { EnemyKind } from './config'
  */
 ;(window as unknown as Record<string, unknown>).__aa = {
   camState, charge, playerState, look, useGame, bolts, stats, enemies, analyseEconomy, debug, audio,
+  computeShot,
   debugClearEnemies: clearEnemies, director,
   /**
    * Point the view at the nearest body. Writes only to `look`, exactly what

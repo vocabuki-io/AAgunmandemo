@@ -15,7 +15,15 @@ import { Vector3 } from 'three'
 import { SHOT } from '../config'
 import { stats } from './runtime'
 
+/**
+ * What actually leaves the barrel. Decided by which buttons were held, not by
+ * a ratio, so it is predictable: hold one and you get that weapon, hold both
+ * and you get the beam.
+ */
+export type ShotKind = 'volt' | 'amp' | 'beam'
+
 export type ShotSpec = {
+  kind: ShotKind
   volts: number
   amps: number
   speed: number
@@ -32,8 +40,15 @@ export type ShotSpec = {
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t
 
+export function shotKind(vRaw: number, aRaw: number): ShotKind {
+  if (vRaw > 0 && aRaw > 0) return 'beam'
+  if (aRaw > 0) return 'amp'
+  return 'volt'
+}
+
 /** Map the two raw 0..1 knobs to a concrete shot. */
 export function computeShot(vRaw: number, aRaw: number): ShotSpec {
+  const kind = shotKind(vRaw, aRaw)
   // A bare tap still produces a usable pellet, so the floor is a remap rather
   // than a clamp: 0 knob -> floor, 1 knob -> 1.
   const v = SHOT.voltFloor + vRaw * (1 - SHOT.voltFloor)
@@ -42,14 +57,25 @@ export function computeShot(vRaw: number, aRaw: number): ShotSpec {
   const volts = lerp(SHOT.voltMin, SHOT.voltMax, v)
   const amps = lerp(SHOT.ampMin, SHOT.ampMax, a)
 
+  const speedMul = kind === 'amp' ? SHOT.ampSpeedMul : kind === 'beam' ? SHOT.beamSpeedMul : 1
+  const blastMul = kind === 'amp' ? SHOT.ampBlastMul : 1
+
+  // A lance always punches through; the beam does too. A ball stops in the
+  // first thing it touches and bursts there.
+  const pierce =
+    kind === 'volt' ? SHOT.voltPierceBase + Math.floor(vRaw * SHOT.voltPierceGain)
+    : kind === 'beam' ? SHOT.beamPierceBase + Math.floor(vRaw * SHOT.voltPierceGain)
+    : 0
+
   return {
+    kind,
     volts,
     amps,
-    speed: lerp(SHOT.speedMin, SHOT.speedMax, v),
+    speed: lerp(SHOT.speedMin, SHOT.speedMax, v) * speedMul,
     range: lerp(SHOT.rangeMin, SHOT.rangeMax, v),
-    pierce: Math.floor(v * SHOT.pierceMax),
+    pierce,
     damage: amps * SHOT.damagePerAmp,
-    arcRadius: aRaw * SHOT.arcRadiusPerA,
+    arcRadius: aRaw * SHOT.arcRadiusPerA * blastMul,
     arcDamage: amps * SHOT.arcDamagePerAmp,
     stun: aRaw * SHOT.stunPerA,
     cost: (volts * amps) / SHOT.costDivisor,

@@ -68,6 +68,7 @@ export function Tuner() {
       freezeEnemies: { value: debug.freezeEnemies, onChange: (v: boolean) => { debug.freezeEnemies = v } },
       godMode: { value: debug.godMode, onChange: (v: boolean) => { debug.godMode = v } },
       infiniteBattery: { value: debug.infiniteBattery, onChange: (v: boolean) => { debug.infiniteBattery = v } },
+      timeScale: { value: debug.timeScale, min: 0.05, max: 1, step: 0.05, onChange: (v: number) => { debug.timeScale = v } },
       // Prints the same table verify asserts on: cheapest shot per threat,
       // and whether full-charge spam can still finish a run.
       'log economy': { value: false, onChange: (v: boolean) => { if (v) console.info(analyseEconomy()) } },
