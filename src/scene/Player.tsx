@@ -57,10 +57,13 @@ export function Player() {
     let wz = 0
     if (len > 0) {
       const nx = ix / len
-      const nz = iz / len
+      // W sets iz to -1 because forward is -Z in view space, so the amount of
+      // FORWARD asked for is -iz. Scaling the forward vector by nz directly
+      // negates it a second time, which drove W backwards and S forwards.
+      const fwd = -iz / len
       // forward = (-sin yaw, 0, -cos yaw); right = (cos yaw, 0, -sin yaw)
-      wx = (nx * cy + nz * -sy) * speed
-      wz = (nx * -sy + nz * -cy) * speed
+      wx = (nx * cy + fwd * -sy) * speed
+      wz = (nx * -sy + fwd * -cy) * speed
     }
 
     const control = playerState.grounded ? 1 : PLAYER.airControl
