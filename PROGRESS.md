@@ -436,3 +436,33 @@ bot の性能と理論値の差として残っている。これは意図した�
 - 装甲個体の部位破壊（装甲板を剥がすと閾値が下がる）
 - 感電の連鎖（敵から敵へ段階的に伝播させる）。現状は着弾点から一斉に届く
 - スコアのランキング保存（セーブデータは「やらないこと」に含まれる）
+
+---
+
+## CI (09/18)
+
+`.github/workflows/ci.yml` で push / PR ごとに `npm run build` と `npm run verify` を回す。
+
+- **ブラウザのダウンロードより先にビルドする**。型エラーなら Chromium を取得する前、
+  1分ほどで落ちる
+- Chromium は `package-lock.json` のハッシュでキャッシュ（ブラウザのビルド番号は
+  固定した playwright のバージョンと一致している必要がある）
+- **スクリーンショットは成功・失敗にかかわらず成果物として上げる**。
+  この検証の失敗は「何が描かれていたか」を見ないと原因が分からないため
+- `concurrency` + `cancel-in-progress`: verify は数分かかるので、
+  新しい push が来たら古い実行は打ち切る
+- タイムアウト 35分（実測は約8分）
+
+### 検証環境の制約について
+
+このコンテナはネットワークポリシーで `cdn.playwright.dev` と Microsoft のミラーを
+遮断している（ゲートウェイが CONNECT に 403）。そのため
+`npx playwright install` のステップだけはローカルで実行できなかった。
+代わりに**それ以外の全経路を CI と同じ状態で検証した**:
+
+- コンテナが持つ `PLAYWRIGHT_BROWSERS_PATH` と `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` を外す
+- ブラウザを CI と同じ既定の場所（`~/.cache/ms-playwright`）に置く
+- その状態で `npm ci` → `npm run build` → `npm run verify` を通す → 24シナリオ全通過
+
+つまり未検証なのはダウンロード1ステップだけで、これは GitHub Actions の
+ランナーでは制限がかからない。

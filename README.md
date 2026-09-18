@@ -1,5 +1,7 @@
 # AA GUNMAN
 
+[![CI](https://github.com/vocabuki-io/AAgunmandemo/actions/workflows/ci.yml/badge.svg)](https://github.com/vocabuki-io/AAgunmandemo/actions/workflows/ci.yml)
+
 単三電池（AA）をリボルバーに装填して撃つ、ブラウザで動く TPS アリーナシューター。
 弾は電気。**ボルト(V)** と **アンペア(A)** を溜めて配合し、状況に応じて撃ち分ける。
 
@@ -74,6 +76,10 @@ npm run verify    # Playwright による検証（下記）
 検証そのものが機能することは、3種類の故障を意図的に仕込んで確認済み
 （マウント時の例外 / 正常な画面＋console.error 1件 / エラーゼロ＋空のシーン）。
 詳細は PROGRESS.md。
+
+CI（`.github/workflows/ci.yml`）は push と PR でこの検証を全部回す。
+失敗したフレームのスクリーンショットは常に成果物として上がるので、
+「何が描かれていたか」を見て原因を追える。
 
 ## 構成
 
