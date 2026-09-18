@@ -250,7 +250,16 @@ const SCENARIOS = [
     name: '11-player-damage',
     minStd: 14,
     async run(page) {
-      await startGame(page)
+      await startGame(page, { calm: true })
+      // Planted in contact rather than walked in. This scenario is about melee
+      // damage and i-frames; how long a swarm takes to cross the arena is
+      // 09-enemies' and 20-wave-clear's business, and waiting for it here
+      // meant waiting on the game clock, which on a slow renderer advances at
+      // a small fraction of wall time.
+      await page.evaluate(() => {
+        window.__aa.debug.godMode = false
+        for (let i = 0; i < 3; i++) window.__aa.debugSpawnAhead('swarm', 1.2, (i - 1) * 0.7)
+      })
       await waitForState(page, (s) => s.stats.playerHits >= 2, 'enemies to land hits')
     },
     assert: (s) => [
@@ -459,7 +468,7 @@ const SCENARIOS = [
           await page.waitForTimeout(500)
         }
       }
-      await waitForState(page, (s) => s.wave >= 1, 'wave 2 to open', 30000)
+      await waitForState(page, (s) => s.wave >= 1, 'wave 2 to open')
     },
     assert: (s) => [
       ['the wave was cleared by shooting', s.stats.enemyKills >= 7],
@@ -576,7 +585,7 @@ const SCENARIOS = [
  * charge value is both stabler and a truer statement of the intent -- a player
  * holds the button until the gun is ready, not for a stopwatch interval.
  */
-async function holdUntilCharged(page, { volt = false, amp = false }, timeoutMs = 20000) {
+async function holdUntilCharged(page, { volt = false, amp = false }, timeoutMs = 120000) {
   if (volt) await page.mouse.down({ button: 'right' })
   if (amp) await page.mouse.down({ button: 'left' })
   const deadline = Date.now() + timeoutMs
@@ -589,8 +598,19 @@ async function holdUntilCharged(page, { volt = false, amp = false }, timeoutMs =
   }
 }
 
-/** Poll the probe until `pred(state)` holds. */
-async function waitForState(page, pred, label, timeoutMs = 45000) {
+/**
+ * Poll the probe until `pred(state)` holds.
+ *
+ * These budgets are deliberately generous. Every wait here is really a wait on
+ * GAME time -- a charge filling, a wave spawning, a body crossing the sand --
+ * but it is spent in WALL time, and the ratio between them is whatever the
+ * renderer manages. On a GitHub runner the game clock was observed advancing
+ * at about 12% of wall time, roughly eight times slower than a local run, so
+ * budgets tuned locally failed there on scenarios that were merely slow.
+ * A generous timeout costs nothing when the predicate holds -- it returns
+ * immediately -- and only bites on a real hang.
+ */
+async function waitForState(page, pred, label, timeoutMs = 180000) {
   const deadline = Date.now() + timeoutMs
   for (;;) {
     const st = await probe(page)
@@ -605,7 +625,7 @@ async function waitForState(page, pred, label, timeoutMs = 45000) {
  * reached. Lets a scenario ask for "just enough volts to break plating" rather
  * than only all-or-nothing.
  */
-async function chargeTo(page, { v = 0, a = 0 }, timeoutMs = 25000) {
+async function chargeTo(page, { v = 0, a = 0 }, timeoutMs = 120000) {
   if (v > 0) await page.mouse.down({ button: 'right' })
   if (a > 0) await page.mouse.down({ button: 'left' })
   let vDone = v <= 0
